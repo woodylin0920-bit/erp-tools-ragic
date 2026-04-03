@@ -49,7 +49,8 @@ DELIVERY_ORDER_SHEET = os.getenv("DELIVERY_ORDER_SHEET", "ragicsales-order-manag
 OUTBOUND_ORDER_SHEET = os.getenv("OUTBOUND_ORDER_SHEET", "ragicinventory/20009")               # 出庫單
 INVENTORY_SHEET      = os.getenv("INVENTORY_SHEET",      "ragicinventory/20008")               # 倉庫庫存
 
-ORDER_ITEMS_SUBTABLE_KEY = os.getenv("ORDER_ITEMS_SUBTABLE_KEY", "_subtable_3000842")   # 訂購項目子表
+ORDER_ITEMS_SUBTABLE_KEY    = os.getenv("ORDER_ITEMS_SUBTABLE_KEY",    "_subtable_3000842")  # 銷貨單訂購項目子表
+OUTBOUND_ITEMS_SUBTABLE_KEY = os.getenv("OUTBOUND_ITEMS_SUBTABLE_KEY", "_subtable_3001132")  # 出庫單項目子表
 
 # 客戶尚未建檔時使用的預留客戶
 UNREGISTERED_CUSTOMER = {"code": "C-00000", "name": "000尚未建檔", "address": ""}
@@ -615,9 +616,39 @@ def run_create_delivery_order(args):
 
 
 def run_create_outbound_order(args):
-    """出貨單批量拋轉建立出庫單，並自動補填倉庫代碼和庫存編號。"""
+    """出貨單拋轉建立出庫單，並自動補填子表的倉庫代碼和庫存編號。"""
     import time
 
+    # 載入倉庫庫存，取出所有倉庫代碼選項
+    console.print("[cyan]載入倉庫庫存資料（Ragic API）...[/cyan]")
+    inventory = ragic_get(INVENTORY_SHEET)
+
+    # 建立 {(倉庫代碼, 商品編號) → (倉庫名稱, 庫存編號)} 對應
+    inv_map: Dict[tuple, dict] = {}
+    warehouses: dict = {}  # {倉庫代碼: 倉庫名稱}
+    for rec in inventory.values():
+        wh_code  = str(rec.get("倉庫代碼", "")).strip()
+        wh_name  = str(rec.get("倉庫名稱", "")).strip()
+        prod     = str(rec.get("商品編號", "")).strip()
+        inv_code = str(rec.get("庫存編號", "")).strip()
+        if wh_code and prod and inv_code:
+            inv_map[(wh_code, prod)] = {"倉庫名稱": wh_name, "庫存編號": inv_code}
+        if wh_code:
+            warehouses[wh_code] = wh_name
+
+    if not warehouses:
+        console.print("[red]無法載入倉庫資料[/red]")
+        return
+
+    # 讓使用者選倉庫
+    wh_choices = [f"{code}  {name}" for code, name in sorted(warehouses.items())]
+    wh_sel = questionary.select("請選擇倉庫：", choices=wh_choices).ask()
+    if not wh_sel:
+        return
+    warehouse_code = wh_sel.split()[0]
+    warehouse_name = warehouses[warehouse_code]
+
+    # 載入出貨單
     console.print("[cyan]載入出貨單資料（Ragic API）...[/cyan]")
     records = ragic_get(DELIVERY_ORDER_SHEET)
 
@@ -632,7 +663,7 @@ def run_create_outbound_order(args):
         console.print("[yellow]沒有出貨單資料[/yellow]")
         return
 
-    console.print(f"[green]✓ 找到 {len(candidates)} 筆未出庫出貨單[/green]")
+    console.print(f"[green]✓ 找到 {len(candidates)} 筆出貨單[/green]")
 
     selected = questionary.checkbox(
         "請選擇要建立出庫單的出貨單（空白鍵勾選，Enter 確認）：",
@@ -644,8 +675,6 @@ def run_create_outbound_order(args):
 
     record_ids = [c["id"] for c in candidates if c["label"] in selected]
 
-    warehouse_code = questionary.text("倉庫代碼", default="TW01").ask() or "TW01"
-
     console.print("[cyan]取得 Ragic 按鈕設定...[/cyan]")
     button_id = ragic_get_action_button_id(DELIVERY_ORDER_SHEET, "建立出庫單")
     if button_id is None:
@@ -656,7 +685,7 @@ def run_create_outbound_order(args):
         console.print(f"[yellow]★ DRY-RUN：buttonId={button_id}，倉庫={warehouse_code}，對象 {record_ids}[/yellow]")
         return
 
-    # 記錄觸發前的出庫單 ID 集合
+    # 記錄觸發前的出庫單 ID
     console.print("[cyan]記錄現有出庫單...[/cyan]")
     before_ids = set(ragic_get(OUTBOUND_ORDER_SHEET).keys())
 
@@ -677,37 +706,41 @@ def run_create_outbound_order(args):
     after_records = ragic_get(OUTBOUND_ORDER_SHEET)
     new_ids = set(after_records.keys()) - before_ids
     if not new_ids:
-        console.print("[yellow]⚠ 未偵測到新建立的出庫單（可能已被 Ragic 擋掉重複拋轉，或需要更多時間）[/yellow]")
+        console.print("[yellow]⚠ 未偵測到新建立的出庫單（可能已被 Ragic 擋掉重複拋轉）[/yellow]")
         return
 
     console.print(f"[green]✓ 偵測到 {len(new_ids)} 筆新出庫單，開始補填倉庫資料...[/green]")
 
-    # 載入倉庫庫存，建立 {商品編號 → 庫存編號} 對應
-    inventory = ragic_get(INVENTORY_SHEET)
-    inv_map: Dict[str, str] = {}
-    for rec in inventory.values():
-        product_code = str(rec.get("商品販售代號", "") or rec.get("商品編號", "")).strip()
-        inv_code     = str(rec.get("庫存編號", "")).strip()
-        wh_code      = str(rec.get("倉庫代碼", "")).strip()
-        if product_code and inv_code and wh_code == warehouse_code:
-            inv_map[product_code] = inv_code
-
     patched = 0
     for oid in new_ids:
         rec = after_records[oid]
-        product_code = str(rec.get("商品販售代號", "") or rec.get("商品編號", "")).strip()
-        inv_code = inv_map.get(product_code, "")
-        patch_payload = {
-            "倉庫代碼": warehouse_code,
-            "庫存編號": inv_code,
-        }
+        subtable = rec.get(OUTBOUND_ITEMS_SUBTABLE_KEY, {})
+        if not subtable:
+            console.print(f"[yellow]⚠ 出庫單 {oid} 沒有子表項目，跳過[/yellow]")
+            continue
+
+        # 為每一個子表列補填倉庫代碼、倉庫名稱、庫存編號
+        updated_rows = {}
+        for row_id, row in subtable.items():
+            if str(row_id).startswith("_"):
+                continue
+            prod = str(row.get("商品編號", "")).strip()
+            inv_entry = inv_map.get((warehouse_code, prod), {})
+            updated_rows[str(row_id)] = {
+                "倉庫代碼": warehouse_code,
+                "倉庫名稱": warehouse_name,
+                "庫存編號": inv_entry.get("庫存編號", ""),
+            }
+
+        patch_payload = {OUTBOUND_ITEMS_SUBTABLE_KEY: updated_rows}
         try:
             ragic_patch(OUTBOUND_ORDER_SHEET, oid, patch_payload)
             patched += 1
+            console.print(f"[green]✓ 出庫單 {oid} 補填完成（{warehouse_code}）[/green]")
         except Exception as e:
             console.print(f"[red]⚠ 出庫單 {oid} 補填失敗：{e}[/red]")
 
-    console.print(f"[green]✓ 完成！{patched}/{len(new_ids)} 筆出庫單已補填倉庫資料[/green]")
+    console.print(f"[bold green]完成！{patched}/{len(new_ids)} 筆出庫單已補填倉庫資料[/bold green]")
     console.print("[dim]請至 Ragic 出庫單頁面確認[/dim]")
 
 
