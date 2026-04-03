@@ -42,9 +42,12 @@ from rich.table import Table
 RAGIC_BASE    = os.getenv("RAGIC_BASE",    "https://ap12.ragic.com")
 RAGIC_ACCOUNT = os.getenv("RAGIC_ACCOUNT", "toybebop")
 
-PRODUCT_PRICE_SHEET = os.getenv("PRODUCT_PRICE_SHEET", "ragicsales-order-management/20006")   # 商品單價管理
-CUSTOMER_SHEET      = os.getenv("CUSTOMER_SHEET",      "ragicsales-order-management/20004")   # 客戶
-SALES_ORDER_SHEET   = os.getenv("SALES_ORDER_SHEET",   "ragicsales-order-management/20001")   # 銷貨單
+PRODUCT_PRICE_SHEET  = os.getenv("PRODUCT_PRICE_SHEET",  "ragicsales-order-management/20006")  # 商品單價管理
+CUSTOMER_SHEET       = os.getenv("CUSTOMER_SHEET",       "ragicsales-order-management/20004")  # 客戶
+SALES_ORDER_SHEET    = os.getenv("SALES_ORDER_SHEET",    "ragicsales-order-management/20001")  # 銷貨單
+DELIVERY_ORDER_SHEET = os.getenv("DELIVERY_ORDER_SHEET", "ragicsales-order-management/20002")  # 出貨單
+OUTBOUND_ORDER_SHEET = os.getenv("OUTBOUND_ORDER_SHEET", "ragicinventory/20009")               # 出庫單
+INVENTORY_SHEET      = os.getenv("INVENTORY_SHEET",      "ragicinventory/20008")               # 倉庫庫存
 
 ORDER_ITEMS_SUBTABLE_KEY = os.getenv("ORDER_ITEMS_SUBTABLE_KEY", "_subtable_3000842")   # 訂購項目子表
 
@@ -127,6 +130,33 @@ def ragic_get(sheet_path: str, limit: int = 2000) -> dict:
 def ragic_post(sheet_path: str, payload: dict) -> dict:
     url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}?api&doLinkLoad=true"
     r = requests.post(url, headers=_auth_header(), json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def ragic_patch(sheet_path: str, record_id: str, payload: dict) -> dict:
+    url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/{record_id}?api"
+    r = requests.patch(url, headers=_auth_header(), json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def ragic_get_action_button_id(sheet_path: str, button_name: str) -> Optional[int]:
+    """從 Ragic metadata 取得指定名稱的 action button ID。"""
+    url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/metadata/actionButton?api"
+    r = requests.get(url, headers=_auth_header(), timeout=30)
+    r.raise_for_status()
+    for btn in r.json().get("actionButtons", []):
+        if btn.get("name") == button_name:
+            return btn["id"]
+    return None
+
+
+def ragic_mass_action(sheet_path: str, button_id: int, record_ids: list) -> dict:
+    """批量觸發 Ragic action button。"""
+    url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/massOperation/massActionButton?api"
+    payload = {"buttonId": button_id, "recordIds": record_ids}
+    r = requests.post(url, headers=_auth_header(), json=payload, timeout=60)
     r.raise_for_status()
     return r.json()
 
@@ -497,6 +527,176 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
     return success_count, len(orders), False
 
 
+# ── 主選單流程 ───────────────────────────────────────────────
+
+def run_new_sales_order(args, price_index: dict, customers: list):
+    """新建銷售單（原 main while 迴圈，沒有 xlsx 時回主選單）。"""
+    total_success = total_orders = 0
+    while True:
+        all_files = find_pending_files(BASE_CLIENT_ORDER)
+        if not all_files:
+            console.print("[yellow]沒有待處理的 Excel 檔案了，返回主選單[/yellow]")
+            break
+
+        labels = [f"{f.parent.name}/{f.name}" for f in all_files]
+        selected = questionary.checkbox(
+            "請選擇要處理的採購單（空白鍵勾選，Enter 確認；不選直接 Enter 返回）：",
+            choices=[questionary.Choice(label, checked=False) for label in labels],
+        ).ask()
+        if not selected:
+            console.print("[yellow]返回主選單[/yellow]")
+            break
+
+        excel_path = all_files[labels.index(selected[0])]
+        s, o, _ = process_file(excel_path, args, price_index, customers)
+        total_success += s
+        total_orders  += o
+        console.print(f"\n[bold cyan]{'─'*58}[/bold cyan]")
+
+    if total_orders > 0:
+        console.print(f"[bold green]本次共處理 {total_success}/{total_orders} 張訂單[/bold green]")
+
+
+def run_create_delivery_order(args):
+    """銷貨單批量拋轉建立出貨單（訂單狀態：未出貨 / 預接單 / 已收款未出貨）。"""
+    TARGET_STATUSES = {"未出貨", "預接單", "已收款未出貨"}
+
+    console.print("[cyan]載入銷貨單資料（Ragic API）...[/cyan]")
+    records = ragic_get(SALES_ORDER_SHEET)
+
+    candidates = []
+    for rid, rec in records.items():
+        status = str(rec.get("訂單狀態", ""))
+        if status in TARGET_STATUSES:
+            candidates.append({
+                "id":    rid,
+                "label": f"{rec.get('銷貨單號','?')}  {rec.get('客戶名稱','?')}  {rec.get('訂單日期','?')}  [{status}]",
+            })
+
+    if not candidates:
+        console.print("[yellow]沒有待拋轉的銷貨單（未出貨 / 預接單 / 已收款未出貨）[/yellow]")
+        return
+
+    console.print(f"[green]✓ 找到 {len(candidates)} 筆待拋轉銷貨單[/green]")
+
+    selected = questionary.checkbox(
+        "請選擇要建立出貨單的銷貨單（空白鍵勾選，Enter 確認）：",
+        choices=[questionary.Choice(c["label"], checked=False) for c in candidates],
+    ).ask()
+    if not selected:
+        console.print("[yellow]返回主選單[/yellow]")
+        return
+
+    record_ids = [c["id"] for c in candidates if c["label"] in selected]
+
+    console.print("[cyan]取得 Ragic 按鈕設定...[/cyan]")
+    button_id = ragic_get_action_button_id(SALES_ORDER_SHEET, "建立出貨單")
+    if button_id is None:
+        console.print("[red]找不到「建立出貨單」按鈕，請確認 Ragic 表單設定[/red]")
+        return
+
+    if args.dry_run:
+        console.print(f"[yellow]★ DRY-RUN：buttonId={button_id}，對象 {record_ids}[/yellow]")
+        return
+
+    console.print(f"[cyan]批量觸發建立出貨單（{len(record_ids)} 筆）...[/cyan]")
+    result = ragic_mass_action(SALES_ORDER_SHEET, button_id, record_ids)
+    task_id = result.get("taskId", "")
+    console.print(f"[green]✓ 已送出，Ragic 工作 ID: {task_id}[/green]")
+    console.print("[dim]請至 Ragic 出貨單頁面確認是否建立完成（可能需要數秒）[/dim]")
+
+
+def run_create_outbound_order(args):
+    """出貨單批量拋轉建立出庫單，並自動補填倉庫代碼和庫存編號。"""
+    import time
+
+    console.print("[cyan]載入出貨單資料（Ragic API）...[/cyan]")
+    records = ragic_get(DELIVERY_ORDER_SHEET)
+
+    candidates = []
+    for rid, rec in records.items():
+        status = str(rec.get("出貨狀態", ""))
+        if status == "未出庫":
+            candidates.append({
+                "id":    rid,
+                "label": f"{rec.get('出貨單號','?')}  {rec.get('客戶名稱','?')}  {rec.get('出貨日期','?')}  [{status}]",
+            })
+
+    if not candidates:
+        console.print("[yellow]沒有待建立出庫單的出貨單（出貨狀態 = 未出庫）[/yellow]")
+        return
+
+    console.print(f"[green]✓ 找到 {len(candidates)} 筆未出庫出貨單[/green]")
+
+    selected = questionary.checkbox(
+        "請選擇要建立出庫單的出貨單（空白鍵勾選，Enter 確認）：",
+        choices=[questionary.Choice(c["label"], checked=False) for c in candidates],
+    ).ask()
+    if not selected:
+        console.print("[yellow]返回主選單[/yellow]")
+        return
+
+    record_ids = [c["id"] for c in candidates if c["label"] in selected]
+
+    warehouse_code = questionary.text("倉庫代碼", default="TW01").ask() or "TW01"
+
+    console.print("[cyan]取得 Ragic 按鈕設定...[/cyan]")
+    button_id = ragic_get_action_button_id(DELIVERY_ORDER_SHEET, "建立出庫單")
+    if button_id is None:
+        console.print("[red]找不到「建立出庫單」按鈕，請確認 Ragic 表單設定[/red]")
+        return
+
+    if args.dry_run:
+        console.print(f"[yellow]★ DRY-RUN：buttonId={button_id}，倉庫={warehouse_code}，對象 {record_ids}[/yellow]")
+        return
+
+    # 記錄觸發前的出庫單 ID 集合
+    console.print("[cyan]記錄現有出庫單...[/cyan]")
+    before_ids = set(ragic_get(OUTBOUND_ORDER_SHEET).keys())
+
+    console.print(f"[cyan]批量觸發建立出庫單（{len(record_ids)} 筆）...[/cyan]")
+    ragic_mass_action(DELIVERY_ORDER_SHEET, button_id, record_ids)
+
+    console.print("[dim]等待 Ragic 建立出庫單（3 秒）...[/dim]")
+    time.sleep(3)
+
+    after_records = ragic_get(OUTBOUND_ORDER_SHEET)
+    new_ids = set(after_records.keys()) - before_ids
+    if not new_ids:
+        console.print("[yellow]⚠ 未偵測到新建立的出庫單（可能已被 Ragic 擋掉重複拋轉，或需要更多時間）[/yellow]")
+        return
+
+    console.print(f"[green]✓ 偵測到 {len(new_ids)} 筆新出庫單，開始補填倉庫資料...[/green]")
+
+    # 載入倉庫庫存，建立 {商品編號 → 庫存編號} 對應
+    inventory = ragic_get(INVENTORY_SHEET)
+    inv_map: Dict[str, str] = {}
+    for rec in inventory.values():
+        product_code = str(rec.get("商品販售代號", "") or rec.get("商品編號", "")).strip()
+        inv_code     = str(rec.get("庫存編號", "")).strip()
+        wh_code      = str(rec.get("倉庫代碼", "")).strip()
+        if product_code and inv_code and wh_code == warehouse_code:
+            inv_map[product_code] = inv_code
+
+    patched = 0
+    for oid in new_ids:
+        rec = after_records[oid]
+        product_code = str(rec.get("商品販售代號", "") or rec.get("商品編號", "")).strip()
+        inv_code = inv_map.get(product_code, "")
+        patch_payload = {
+            "倉庫代碼": warehouse_code,
+            "庫存編號": inv_code,
+        }
+        try:
+            ragic_patch(OUTBOUND_ORDER_SHEET, oid, patch_payload)
+            patched += 1
+        except Exception as e:
+            console.print(f"[red]⚠ 出庫單 {oid} 補填失敗：{e}[/red]")
+
+    console.print(f"[green]✓ 完成！{patched}/{len(new_ids)} 筆出庫單已補填倉庫資料[/green]")
+    console.print("[dim]請至 Ragic 出庫單頁面確認[/dim]")
+
+
 # ── 主程式 ───────────────────────────────────────────────────
 
 def main():
@@ -528,8 +728,7 @@ def main():
         console.print(f"\n[bold green]完成！成功處理 {s}/{o} 張訂單[/bold green]")
         return
 
-    # 互動選單模式：完成一個→回到選單，直到使用者不再選擇
-    # 詢問 dry-run（只問一次）
+    # DRY-RUN 提示（頂層，一次即可）
     if not args.dry_run:
         mode_input = questionary.text(
             "按 Enter 開始正式執行（輸入 debug 進入測試模式）：",
@@ -540,35 +739,34 @@ def main():
     if args.dry_run:
         console.print("[yellow bold]★ DRY-RUN 模式：不會實際送出，也不會移動檔案[/yellow bold]")
 
-    # 載入 Ragic 快取（一次性）
-    price_index = load_price_index()
-    customers   = load_customers()
+    # 快取懶載入（進入新建銷售單時才 API 一次）
+    price_index = customers = None
 
-    total_success = total_orders = 0
+    # ── 主選單 ─────────────────────────────────────────────────
     while True:
-        all_files = find_pending_files(BASE_CLIENT_ORDER)
-        if not all_files:
-            console.print("[yellow]沒有待處理的 Excel 檔案了[/yellow]")
-            break
-
-        labels = [f"{f.parent.name}/{f.name}" for f in all_files]
-        selected = questionary.checkbox(
-            "請選擇要處理的採購單（空白鍵勾選，Enter 確認；不選直接 Enter 結束）：",
-            choices=[questionary.Choice(label, checked=False) for label in labels],
+        choice = questionary.select(
+            "請選擇功能：",
+            choices=[
+                "新建銷售單",
+                "建立出貨單（銷貨單拋轉）",
+                "建立出庫單（出貨單拋轉）",
+                "退出",
+            ],
         ).ask()
-        if not selected:
-            console.print("[yellow]結束[/yellow]")
+
+        if not choice or choice == "退出":
             break
+        elif choice == "新建銷售單":
+            if price_index is None:
+                price_index = load_price_index()
+                customers   = load_customers()
+            run_new_sales_order(args, price_index, customers)
+        elif choice == "建立出貨單（銷貨單拋轉）":
+            run_create_delivery_order(args)
+        elif choice == "建立出庫單（出貨單拋轉）":
+            run_create_outbound_order(args)
 
-        # 每次只處理第一個選中的檔案，處理完回到選單重新掃描
-        excel_path = all_files[labels.index(selected[0])]
-        s, o, _ = process_file(excel_path, args, price_index, customers)
-        total_success += s
-        total_orders  += o
-
-        console.print(f"\n[bold cyan]{'─'*58}[/bold cyan]")
-
-    console.print(f"\n[bold green]完成！成功處理 {total_success}/{total_orders} 張訂單[/bold green]")
+    console.print("[bold green]再見！[/bold green]")
 
 
 if __name__ == "__main__":
