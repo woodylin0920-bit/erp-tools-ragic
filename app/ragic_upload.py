@@ -570,7 +570,7 @@ def run_create_delivery_order(args):
         if status in TARGET_STATUSES:
             candidates.append({
                 "id":    rid,
-                "label": f"{rec.get('銷貨單號','?')}  {rec.get('客戶名稱','?')}  {rec.get('訂單日期','?')}  [{status}]",
+                "label": f"{rec.get('訂單編號','?')}  {rec.get('客戶名稱','?')}  {rec.get('訂單日期','?')}  [{status}]",
             })
 
     if not candidates:
@@ -615,11 +615,11 @@ def run_create_outbound_order(args):
 
     candidates = []
     for rid, rec in records.items():
-        status = str(rec.get("出貨狀態", ""))
+        status = str(rec.get("狀態*", ""))
         if status == "未出庫":
             candidates.append({
                 "id":    rid,
-                "label": f"{rec.get('出貨單號','?')}  {rec.get('客戶名稱','?')}  {rec.get('出貨日期','?')}  [{status}]",
+                "label": f"{rec.get('出貨單號','?')}  {rec.get('客戶名稱','?')}  {rec.get('訂單日期','?')}  [{status}]",
             })
 
     if not candidates:
