@@ -1,0 +1,31 @@
+# 敏感設定（絕對不能上傳）
+.env
+
+# 虛擬環境
+venv/
+.venv/
+env/
+
+# Python 編譯檔
+__pycache__/
+*.py[cod]
+*.pyo
+
+# 客戶採購單（含商業資料）— 所有客戶資料夾通用
+client_order/**/*.xlsx
+client_order/**/done/
+
+# 上傳記錄（個人執行記錄）
+upload_log.json
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# 影片 / 大型媒體檔
+*.mov
+*.mp4
+
+# 編輯器
+.vscode/
+.idea/
