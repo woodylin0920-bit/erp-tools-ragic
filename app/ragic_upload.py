@@ -152,11 +152,10 @@ def ragic_get_action_button_id(sheet_path: str, button_name: str) -> Optional[in
     return None
 
 
-def ragic_mass_action(sheet_path: str, button_id: int, record_ids: list) -> dict:
-    """批量觸發 Ragic action button。"""
-    url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/massOperation/massActionButton?api"
-    payload = {"buttonId": button_id, "recordIds": record_ids}
-    r = requests.post(url, headers=_auth_header(), json=payload, timeout=60)
+def ragic_trigger_button(sheet_path: str, record_id: str, button_id) -> dict:
+    """對單筆記錄觸發 Ragic action button。"""
+    url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/{record_id}?api&bId={button_id}"
+    r = requests.post(url, headers=_auth_header(), timeout=60)
     r.raise_for_status()
     return r.json()
 
@@ -599,11 +598,20 @@ def run_create_delivery_order(args):
         console.print(f"[yellow]★ DRY-RUN：buttonId={button_id}，對象 {record_ids}[/yellow]")
         return
 
-    console.print(f"[cyan]批量觸發建立出貨單（{len(record_ids)} 筆）...[/cyan]")
-    result = ragic_mass_action(SALES_ORDER_SHEET, button_id, record_ids)
-    task_id = result.get("taskId", "")
-    console.print(f"[green]✓ 已送出，Ragic 工作 ID: {task_id}[/green]")
-    console.print("[dim]請至 Ragic 出貨單頁面確認是否建立完成（可能需要數秒）[/dim]")
+    success = 0
+    for rid in record_ids:
+        try:
+            result = ragic_trigger_button(SALES_ORDER_SHEET, rid, button_id)
+            if result.get("status") == "SUCCESS":
+                urls = result.get("urls", [])
+                console.print(f"[green]✓ {rid} 拋轉成功[/green]" + (f"  → {urls[0]}" if urls else ""))
+                success += 1
+            else:
+                console.print(f"[red]✗ {rid} 拋轉失敗：{result.get('msg', result)}[/red]")
+        except Exception as e:
+            console.print(f"[red]✗ {rid} 發生錯誤：{e}[/red]")
+    console.print(f"[bold green]完成！{success}/{len(record_ids)} 筆出貨單建立成功[/bold green]")
+    console.print("[dim]請至 Ragic 出貨單頁面確認[/dim]")
 
 
 def run_create_outbound_order(args):
@@ -654,8 +662,16 @@ def run_create_outbound_order(args):
     console.print("[cyan]記錄現有出庫單...[/cyan]")
     before_ids = set(ragic_get(OUTBOUND_ORDER_SHEET).keys())
 
-    console.print(f"[cyan]批量觸發建立出庫單（{len(record_ids)} 筆）...[/cyan]")
-    ragic_mass_action(DELIVERY_ORDER_SHEET, button_id, record_ids)
+    console.print(f"[cyan]逐筆觸發建立出庫單（{len(record_ids)} 筆）...[/cyan]")
+    for rid in record_ids:
+        try:
+            result = ragic_trigger_button(DELIVERY_ORDER_SHEET, rid, button_id)
+            if result.get("status") == "SUCCESS":
+                console.print(f"[green]✓ {rid} 拋轉成功[/green]")
+            else:
+                console.print(f"[red]✗ {rid} 拋轉失敗：{result.get('msg', result)}[/red]")
+        except Exception as e:
+            console.print(f"[red]✗ {rid} 發生錯誤：{e}[/red]")
 
     console.print("[dim]等待 Ragic 建立出庫單（3 秒）...[/dim]")
     time.sleep(3)
