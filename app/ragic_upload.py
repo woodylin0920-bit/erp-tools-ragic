@@ -48,6 +48,9 @@ SALES_ORDER_SHEET   = os.getenv("SALES_ORDER_SHEET",   "ragicsales-order-managem
 
 ORDER_ITEMS_SUBTABLE_KEY = os.getenv("ORDER_ITEMS_SUBTABLE_KEY", "_subtable_3000842")   # 訂購項目子表
 
+# 客戶尚未建檔時使用的預留客戶
+UNREGISTERED_CUSTOMER = {"code": "C-00000", "name": "000尚未建檔", "address": ""}
+
 # 上傳記錄檔（防重複）
 _UPLOAD_LOG = Path(__file__).resolve().parent.parent / "upload_log.json"
 
@@ -184,8 +187,14 @@ def find_customer(customers: list, store_code: str, client_code: str = "") -> Op
         choices = [f"{c['code']}  {c['name']}" for c in matches]
         sel = questionary.select(f"找到多個含「{store_code}」的客戶，請選擇：", choices=choices).ask()
         return matches[choices.index(sel)]
-    # 找不到 → 讓使用者輸入關鍵字搜尋
-    console.print(f"[yellow]⚠ 找不到含「{store_code}」的客戶，請輸入關鍵字搜尋[/yellow]")
+    # 找不到 → 先詢問是否暫用尚未建檔，再讓使用者搜尋
+    console.print(f"[yellow]⚠ 找不到含「{store_code}」的客戶[/yellow]")
+    use_placeholder = questionary.confirm(
+        "是否暫用「C-00000 000尚未建檔」代替？（之後在 Ragic 補填客戶）",
+        default=True,
+    ).ask()
+    if use_placeholder:
+        return UNREGISTERED_CUSTOMER
     all_choices = [f"{c['code']}  {c['name']}" for c in customers]
     sel = questionary.autocomplete(
         "搜尋客戶（輸入代碼或名稱片段）：",
@@ -287,7 +296,7 @@ def show_items_table(customer: dict, store_code: str, po_number: str, resolved: 
     console.print()
 
 
-def ask_order_options() -> tuple:
+def ask_order_options(is_unregistered: bool = False) -> tuple:
     order_type = questionary.select(
         "請選擇訂單單別",
         choices=["一般訂單", "公關品", "樣品", "蝦皮", "官網"],
@@ -295,8 +304,8 @@ def ask_order_options() -> tuple:
 
     order_status = questionary.select(
         "請選擇訂單狀態",
-        choices=["未出貨", "預接單", "已收款未出貨", "已出貨未收款"],
-        default="未出貨",
+        choices=["未出貨", "預接單", "已收款未出貨", "已出貨未收款", "尚未建檔"],
+        default="尚未建檔" if is_unregistered else "未出貨",
     ).ask()
 
     tax_choice = questionary.select(
@@ -434,7 +443,8 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
 
         show_items_table(customer, order.store_code, order.po_number, resolved)
 
-        order_type, order_status, tax_rate, shipping_fee, notes, internal_notes = ask_order_options()
+        is_unregistered = customer["code"] == UNREGISTERED_CUSTOMER["code"]
+        order_type, order_status, tax_rate, shipping_fee, notes, internal_notes = ask_order_options(is_unregistered)
 
         show_confirmation(customer, resolved, order_type, order_status, tax_rate, shipping_fee, notes, internal_notes)
 
