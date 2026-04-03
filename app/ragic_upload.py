@@ -142,8 +142,8 @@ def ragic_patch(sheet_path: str, record_id: str, payload: dict) -> dict:
 
 
 def ragic_get_action_button_id(sheet_path: str, button_name: str) -> Optional[int]:
-    """從 Ragic metadata 取得指定名稱的 action button ID。"""
-    url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/metadata/actionButton?api"
+    """從 Ragic metadata 取得指定名稱的 action button ID（massOperation 類別）。"""
+    url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/metadata/actionButton?api&category=massOperation"
     r = requests.get(url, headers=_auth_header(), timeout=30)
     r.raise_for_status()
     for btn in r.json().get("actionButtons", []):
