@@ -623,15 +623,13 @@ def run_create_outbound_order(args):
 
     candidates = []
     for rid, rec in records.items():
-        status = str(rec.get("狀態*", ""))
-        if status == "未出庫":
-            candidates.append({
-                "id":    rid,
-                "label": f"{rec.get('出貨單號','?')}  {rec.get('客戶名稱','?')}  {rec.get('訂單日期','?')}  [{status}]",
-            })
+        candidates.append({
+            "id":    rid,
+            "label": f"{rec.get('出貨單號','?')}  {rec.get('客戶名稱','?')}  {rec.get('訂單日期','?')}",
+        })
 
     if not candidates:
-        console.print("[yellow]沒有待建立出庫單的出貨單（出貨狀態 = 未出庫）[/yellow]")
+        console.print("[yellow]沒有出貨單資料[/yellow]")
         return
 
     console.print(f"[green]✓ 找到 {len(candidates)} 筆未出庫出貨單[/green]")
