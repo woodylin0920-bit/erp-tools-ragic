@@ -7,11 +7,15 @@ Ragic 銷貨單自動化上傳腳本
 """
 
 import argparse
+import hashlib
 import json
+import logging
 import os
 import shutil
 import sys
+import time
 from datetime import date, datetime
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -58,6 +62,9 @@ UNREGISTERED_CUSTOMER = {"code": "C-00000", "name": "000尚未建檔", "address"
 # 上傳記錄檔（防重複）
 _UPLOAD_LOG = Path(__file__).resolve().parent.parent / "upload_log.json"
 
+# 操作日誌資料夾
+_LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
+
 
 def _load_upload_log() -> dict:
     if _UPLOAD_LOG.exists():
@@ -70,6 +77,16 @@ def _load_upload_log() -> dict:
 
 def _save_upload_log(log: dict):
     _UPLOAD_LOG.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _setup_logging():
+    _LOGS_DIR.mkdir(exist_ok=True)
+    log_file = _LOGS_DIR / f"{date.today()}.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[logging.FileHandler(log_file, encoding="utf-8")],
+    )
 
 _CID_LABELS = {
     "3000812": "訂單單別",    "3000813": "訂單日期",      "3000814": "訂單狀態",
@@ -120,33 +137,54 @@ def _auth_header() -> dict:
     return {"Authorization": f"Basic {api_key}"}
 
 
+def _ragic_request(method: str, url: str, **kwargs) -> requests.Response:
+    """帶自動重試的 HTTP 請求（最多 3 次，指數退避 1s/2s/4s）。"""
+    retryable_errors = (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+    last_exc = None
+    for attempt in range(3):
+        try:
+            r = requests.request(method, url, **kwargs)
+            if r.status_code >= 500 and attempt < 2:
+                wait = 2 ** attempt
+                console.print(f"[yellow]⚠ 伺服器錯誤（{r.status_code}），{wait} 秒後重試...[/yellow]")
+                logging.warning("HTTP %s on %s, retrying in %ss (attempt %d)", r.status_code, url, wait, attempt + 1)
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            return r
+        except retryable_errors as e:
+            last_exc = e
+            if attempt < 2:
+                wait = 2 ** attempt
+                console.print(f"[yellow]⚠ 網路錯誤，{wait} 秒後重試...[/yellow]")
+                logging.warning("Network error on %s: %s, retrying in %ss (attempt %d)", url, e, wait, attempt + 1)
+                time.sleep(wait)
+    raise last_exc
+
+
 def ragic_get(sheet_path: str, limit: int = 2000) -> dict:
     url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}?api&limit={limit}"
-    r = requests.get(url, headers=_auth_header(), timeout=30)
-    r.raise_for_status()
+    r = _ragic_request("GET", url, headers=_auth_header(), timeout=30)
     data = r.json()
     return {k: v for k, v in data.items() if not k.startswith("_") and k != "info"}
 
 
 def ragic_post(sheet_path: str, payload: dict) -> dict:
     url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}?api&doLinkLoad=true"
-    r = requests.post(url, headers=_auth_header(), json=payload, timeout=30)
-    r.raise_for_status()
+    r = _ragic_request("POST", url, headers=_auth_header(), json=payload, timeout=30)
     return r.json()
 
 
 def ragic_patch(sheet_path: str, record_id: str, payload: dict) -> dict:
     url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/{record_id}?api&doLinkLoad=true"
-    r = requests.patch(url, headers=_auth_header(), json=payload, timeout=30)
-    r.raise_for_status()
+    r = _ragic_request("PATCH", url, headers=_auth_header(), json=payload, timeout=30)
     return r.json()
 
 
 def ragic_get_action_button_id(sheet_path: str, button_name: str) -> Optional[int]:
     """從 Ragic metadata 取得指定名稱的 action button ID（massOperation 類別）。"""
     url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/metadata/actionButton?api&category=massOperation"
-    r = requests.get(url, headers=_auth_header(), timeout=30)
-    r.raise_for_status()
+    r = _ragic_request("GET", url, headers=_auth_header(), timeout=30)
     for btn in r.json().get("actionButtons", []):
         if btn.get("name") == button_name:
             return btn["id"]
@@ -156,8 +194,7 @@ def ragic_get_action_button_id(sheet_path: str, button_name: str) -> Optional[in
 def ragic_trigger_button(sheet_path: str, record_id: str, button_id) -> dict:
     """對單筆記錄觸發 Ragic action button。"""
     url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/{record_id}?api&bId={button_id}"
-    r = requests.post(url, headers=_auth_header(), timeout=60)
-    r.raise_for_status()
+    r = _ragic_request("POST", url, headers=_auth_header(), timeout=60)
     return r.json()
 
 
@@ -299,7 +336,7 @@ def resolve_items(order_items, price_index: dict, auto_unit_spec: bool = False) 
             "unit":         product["unit"],
             "unit_price":   override_price if override_price else product["price"],
             "quantity":     final_qty,
-            "amount":       round((override_price if override_price else product["price"]) * final_qty, 2),
+            "amount":       float((Decimal(str(override_price if override_price else product["price"])) * Decimal(str(final_qty))).quantize(Decimal("0.01"), ROUND_HALF_UP)),
         })
     return resolved
 
@@ -354,9 +391,9 @@ def ask_order_options(is_unregistered: bool = False) -> tuple:
 
 def show_confirmation(customer: dict, resolved: list, order_type: str, order_status: str,
                       tax_rate: str, shipping_fee: float, notes: str, internal_notes: str) -> tuple:
-    subtotal = sum(it["amount"] for it in resolved)
-    tax_amount = round(subtotal * 0.05, 2) if tax_rate == "5%" else 0.0
-    total = round(subtotal + shipping_fee + tax_amount, 2)
+    subtotal = sum(Decimal(str(it["amount"])) for it in resolved)
+    tax_amount = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"), ROUND_HALF_UP) if tax_rate == "5%" else Decimal("0")
+    total = subtotal + tax_amount + Decimal(str(shipping_fee))
 
     console.print()
     console.rule("[bold red]最終確認[/bold red]")
@@ -381,21 +418,20 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
 
     # 計算各項金額
     subtable = {}
-    subtotal = 0.0
+    subtotal = Decimal("0")
     for i, it in enumerate(resolved):
-        amount = round(it["unit_price"] * it["quantity"], 2)
+        amount = (Decimal(str(it["unit_price"])) * Decimal(str(it["quantity"]))).quantize(Decimal("0.01"), ROUND_HALF_UP)
         subtotal += amount
         subtable[str(-(i + 1))] = {
             "3000829": i + 1,                # 項次
             "3000830": it["product_code"],   # 商品販售代號
             "3000832": it["unit_price"],      # 單價
             "3000833": it["quantity"],        # 數量
-            "3000834": amount,               # 金額（單價×數量）
+            "3000834": float(amount),        # 金額（單價×數量）
         }
 
-    subtotal    = round(subtotal, 2)
-    tax_amount  = round(subtotal * 0.05, 2) if tax_rate == "5%" else 0.0
-    total       = round(subtotal + tax_amount + shipping_fee, 2)
+    tax_amount  = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"), ROUND_HALF_UP) if tax_rate == "5%" else Decimal("0")
+    total       = subtotal + tax_amount + Decimal(str(shipping_fee))
 
     return {
         "3000812": order_type,               # 訂單單別
@@ -406,9 +442,9 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
         "3000838": tax_rate,                 # 稅率
         "3001498": int(shipping_fee),        # 訂單運費
         "3001684": "DDP",                    # 國貿條規（預設）
-        "3000835": subtotal,                 # 小計
-        "3000837": tax_amount,               # 稅額
-        "3000839": total,                    # 總金額(含稅)
+        "3000835": float(subtotal),          # 小計
+        "3000837": float(tax_amount),        # 稅額
+        "3000839": float(total),             # 總金額(含稅)
         "3000840": notes,                    # 備註
         "1000074": f"【AI建單】 {internal_notes}".strip() if internal_notes else "【AI建單】",  # 內部備注
         "3000845": now,                      # 建檔日期時間
@@ -447,6 +483,7 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
     console.print(f"[green]✓ 偵測到 {len(orders)} 張訂單[/green]")
 
     upload_log = _load_upload_log()
+    file_hash = hashlib.md5(excel_path.read_bytes()).hexdigest()
     success_count = 0
     for i, order in enumerate(orders, 1):
         console.print(f"\n{'═'*58}")
@@ -456,7 +493,11 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
         log_key = f"{client_code}_{order.store_code}_{order.po_number}"
         if log_key in upload_log and not args.dry_run:
             rec = upload_log[log_key]
-            console.print(f"[yellow]⚠ 此訂單已於 {rec['uploaded_at']} 上傳（Ragic ID: {rec['ragic_id']}）[/yellow]")
+            if rec.get("file_hash") == file_hash:
+                console.print(f"[yellow]⚠ 此訂單已於 {rec['uploaded_at']} 上傳（Ragic ID: {rec['ragic_id']}），且為相同檔案，自動跳過[/yellow]")
+                logging.info("重複跳過 log_key=%s ragic_id=%s", log_key, rec['ragic_id'])
+                continue
+            console.print(f"[yellow]⚠ 此訂單已於 {rec['uploaded_at']} 上傳（Ragic ID: {rec['ragic_id']}），但檔案內容已變更[/yellow]")
             skip = questionary.confirm("是否跳過（建議跳過以避免重複）？", default=True).ask()
             if skip:
                 console.print("[yellow]已跳過[/yellow]")
@@ -506,11 +547,13 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
                 if result.get("status") == "SUCCESS" or result.get("ragicId"):
                     ragic_id = result.get("ragicId", "")
                     console.print(f"[green]✓ 訂單建立成功！Ragic ID: {ragic_id}[/green]")
+                    logging.info("銷貨單建立成功 ragic_id=%s file=%s log_key=%s", ragic_id, excel_path.name, log_key)
                     success_count += 1
                     upload_log[log_key] = {
                         "ragic_id":    str(ragic_id),
                         "uploaded_at": datetime.now().strftime("%Y/%m/%d %H:%M"),
                         "file":        excel_path.name,
+                        "file_hash":   file_hash,
                     }
                     _save_upload_log(upload_log)
                 else:
@@ -524,6 +567,7 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
         dest = done_dir / excel_path.name
         shutil.move(str(excel_path), str(dest))
         console.print(f"[green]✓ 已移至 {dest.parent.name}/done/{dest.name}[/green]")
+        logging.info("檔案移至 done: %s", dest)
 
     return success_count, len(orders), False
 
@@ -622,19 +666,20 @@ def run_create_delivery_order(args):
             if result.get("status") == "SUCCESS":
                 urls = result.get("urls", [])
                 console.print(f"[green]✓ {rid} 拋轉成功[/green]" + (f"  → {urls[0]}" if urls else ""))
+                logging.info("出貨單建立成功 sales_id=%s", rid)
                 success += 1
             else:
                 console.print(f"[red]✗ {rid} 拋轉失敗：{result.get('msg', result)}[/red]")
+                logging.warning("出貨單建立失敗 sales_id=%s msg=%s", rid, result.get('msg', result))
         except Exception as e:
             console.print(f"[red]✗ {rid} 發生錯誤：{e}[/red]")
+            logging.error("出貨單建立錯誤 sales_id=%s error=%s", rid, e)
     console.print(f"[bold green]完成！{success}/{len(record_ids)} 筆出貨單建立成功[/bold green]")
     console.print("[dim]請至 Ragic 出貨單頁面確認[/dim]")
 
 
 def run_create_outbound_order(args):
     """出貨單拋轉建立出庫單，並自動補填子表的倉庫代碼和庫存編號。"""
-    import time
-
     # 載入出貨單
     console.print("[cyan]載入出貨單資料（Ragic API）...[/cyan]")
     records = ragic_get(DELIVERY_ORDER_SHEET)
@@ -776,10 +821,13 @@ def run_create_outbound_order(args):
             result = ragic_trigger_button(DELIVERY_ORDER_SHEET, rid, button_id)
             if result.get("status") == "SUCCESS":
                 console.print(f"[green]✓ {rid} 拋轉成功[/green]")
+                logging.info("出庫單觸發成功 delivery_id=%s", rid)
             else:
                 console.print(f"[red]✗ {rid} 拋轉失敗：{result.get('msg', result)}[/red]")
+                logging.warning("出庫單觸發失敗 delivery_id=%s msg=%s", rid, result.get('msg', result))
         except Exception as e:
             console.print(f"[red]✗ {rid} 發生錯誤：{e}[/red]")
+            logging.error("出庫單觸發錯誤 delivery_id=%s error=%s", rid, e)
 
     console.print("[dim]等待 Ragic 建立出庫單（3 秒）...[/dim]")
     time.sleep(3)
@@ -808,6 +856,10 @@ def run_create_outbound_order(args):
                 continue
             prod = str(row.get("商品編號", "")).strip()
             inv_code = prod_inv_map.get(prod, "")
+            if not inv_code:
+                console.print(f"[yellow]⚠ 出庫單 {oid} 商品 {prod} 無庫存編號，該列倉庫欄位略過[/yellow]")
+                logging.warning("出庫單 %s 商品 %s 無庫存編號，略過", oid, prod)
+                continue
             updated_rows[str(row_id)] = {
                 "3001124": warehouse_code,  # 倉庫代碼
                 "3001126": inv_code,        # 庫存編號
@@ -817,8 +869,10 @@ def run_create_outbound_order(args):
             ragic_patch(OUTBOUND_ORDER_SHEET, oid, {OUTBOUND_ITEMS_SUBTABLE_KEY: updated_rows})
             patched += 1
             console.print(f"[green]✓ 出庫單 {oid} 補填完成（{warehouse_code}）[/green]")
+            logging.info("出庫單補填成功 outbound_id=%s warehouse=%s", oid, warehouse_code)
         except Exception as e:
             console.print(f"[red]⚠ 出庫單 {oid} 補填失敗：{e}[/red]")
+            logging.error("出庫單補填失敗 outbound_id=%s error=%s", oid, e)
 
     console.print(f"[bold green]完成！{patched}/{len(new_ids)} 筆出庫單已補填倉庫資料[/bold green]")
     console.print("[dim]請至 Ragic 出庫單頁面確認[/dim]")
@@ -827,6 +881,7 @@ def run_create_outbound_order(args):
 # ── 主程式 ───────────────────────────────────────────────────
 
 def main():
+    _setup_logging()
     parser = argparse.ArgumentParser(description="Ragic 銷貨單自動化上傳")
     parser.add_argument("excel", nargs="?", default=None,
         help="採購單路徑（省略時自動掃描 client_order/ 下所有待處理檔案）")
