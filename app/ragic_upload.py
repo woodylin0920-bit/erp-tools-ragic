@@ -719,7 +719,7 @@ def run_create_outbound_order(args):
             console.print(f"[yellow]⚠ 出庫單 {oid} 沒有子表項目，跳過[/yellow]")
             continue
 
-        # 為每一個子表列補填倉庫代碼、倉庫名稱、庫存編號
+        # 為每一個子表列補填倉庫代碼、庫存編號（用 CID 數字，欄位名稱會被 Ragic validation 擋掉）
         updated_rows = {}
         for row_id, row in subtable.items():
             if str(row_id).startswith("_"):
@@ -727,9 +727,9 @@ def run_create_outbound_order(args):
             prod = str(row.get("商品編號", "")).strip()
             inv_entry = inv_map.get((warehouse_code, prod), {})
             updated_rows[str(row_id)] = {
-                "倉庫代碼": warehouse_code,
+                "3001124": warehouse_code,               # 倉庫代碼（必填欄位用 CID）
                 "倉庫名稱": warehouse_name,
-                "庫存編號": inv_entry.get("庫存編號", ""),
+                "3001126": inv_entry.get("庫存編號", ""),  # 庫存編號（必填欄位用 CID）
             }
 
         patch_payload = {OUTBOUND_ITEMS_SUBTABLE_KEY: updated_rows}
