@@ -503,15 +503,12 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
         console.print(f"\n{'═'*58}")
         console.print(f"[bold]訂單 {i}/{len(orders)}  門市: {order.store_code}  PO: {order.po_number}[/bold]")
 
-        # 防重複：檢查是否已上傳過
+        # 防重複：以 PO 為單位判斷是否已上傳過
         log_key = f"{client_code}_{order.store_code}_{order.po_number}"
         if log_key in upload_log and not args.dry_run:
             rec = upload_log[log_key]
-            if rec.get("file_hash") == file_hash:
-                console.print(f"[yellow]⚠ 此訂單已於 {rec['uploaded_at']} 上傳（Ragic ID: {rec['ragic_id']}），且為相同檔案，自動跳過[/yellow]")
-                logging.info("重複跳過 log_key=%s ragic_id=%s", log_key, rec['ragic_id'])
-                continue
-            console.print(f"[yellow]⚠ 此訂單已於 {rec['uploaded_at']} 上傳（Ragic ID: {rec['ragic_id']}），但檔案內容已變更[/yellow]")
+            console.print(f"[yellow]⚠ 此訂單已於 {rec['uploaded_at']} 上傳（Ragic ID: {rec['ragic_id']}）[/yellow]")
+            logging.info("重複跳過 log_key=%s ragic_id=%s", log_key, rec['ragic_id'])
             skip = questionary.confirm("是否跳過（建議跳過以避免重複）？", default=True).ask()
             if skip:
                 console.print("[yellow]已跳過[/yellow]")
