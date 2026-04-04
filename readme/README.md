@@ -1,166 +1,115 @@
-# erp-tools-ragic — Ragic 銷貨單自動上傳工具
-
-自動將客戶採購單 Excel 解析並上傳至 Ragic 建立銷貨單，支援麗嬰（LE）、玩具反斗城（TRU）格式。
+# Ragic ERP 自動化工具 — 完整說明
 
 ---
 
-## 目錄結構
+## 目錄
 
-```
-erp-tools-ragic/
-├── start.command         ← Mac 雙擊啟動
-├── start.bat             ← Windows 雙擊啟動
-├── client_order/         ← 採購單放這裡
-│   ├── LE/               ← 麗嬰採購單
-│   │   └── done/         ← 上傳完成後自動移入（程式自動建立）
-│   └── TRU/              ← 玩具反斗城採購單
-│       └── done/
-├── app/
-│   ├── ragic_upload.py   ← 主程式
-│   └── parsers/          ← 各客戶格式解析器
-├── .env                  ← 設定檔（需自行建立，見下方）
-├── .env.example          ← 設定範本
-├── requirements.txt      ← Python 套件清單
-└── readme/README.md      ← 本說明文件
-```
+- [第一次設定（只需做一次）](#第一次設定只需做一次)
+- [日常使用](#日常使用)
+  - [功能一：新建銷售單](#功能一新建銷售單)
+  - [功能二：建立出貨單](#功能二建立出貨單銷貨單拋轉)
+  - [功能三：建立出庫單](#功能三建立出庫單出貨單拋轉)
+- [常見問題](#常見問題)
 
 ---
 
-## 環境設定（第一次使用，只需做一次）
+## 第一次設定（只需做一次）
 
-### 1. 確認 Python 版本（需 3.8 以上）
+### 步驟 1：安裝 Python
 
-```bash
-# Mac / Linux
+先確認電腦有沒有安裝 Python。
+
+**Mac：** 打開「終端機」，輸入：
+```
 python3 --version
+```
 
-# Windows
+**Windows：** 打開「命令提示字元」，輸入：
+```
 python --version
 ```
 
-如果沒有 Python，請至 https://www.python.org/downloads/ 下載安裝。
+如果出現版本號（如 `Python 3.11.0`）代表已安裝，跳到步驟 2。
+
+如果出現錯誤，請至 https://www.python.org/downloads/ 下載安裝，安裝時勾選 **「Add Python to PATH」**。
 
 ---
 
-### 2. 建立虛擬環境（venv）
+### 步驟 2：下載程式
 
-**Mac / Linux：**
-```bash
-cd ~/Desktop/erp-tools-ragic
-python3 -m venv venv
-source venv/bin/activate
-```
+在 GitHub 頁面點右上角的綠色「**Code**」按鈕 → 選「**Download ZIP**」。
 
-**Windows（命令提示字元）：**
-```cmd
-cd %USERPROFILE%\Desktop\erp-tools-ragic
-python -m venv venv
-venv\Scripts\activate
-```
-
-**Windows（PowerShell）：**
-```powershell
-cd $env:USERPROFILE\Desktop\erp-tools-ragic
-python -m venv venv
-venv\Scripts\Activate.ps1
-```
-
-> 啟動成功後，命令列前方會出現 `(venv)` 字樣。
+解壓縮後，將資料夾放到**桌面**，資料夾名稱保持 `erp-tools-ragic`。
 
 ---
 
-### 3. 安裝套件
+### 步驟 3：安裝必要套件
 
-```bash
-pip install -r requirements.txt
+**Mac：** 打開「終端機」，貼上以下指令後按 Enter：
 ```
+cd ~/Desktop/erp-tools-ragic && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+```
+
+**Windows：** 打開「命令提示字元」，貼上以下指令後按 Enter：
+```
+cd %USERPROFILE%\Desktop\erp-tools-ragic && python -m venv venv && venv\Scripts\activate && pip install -r requirements.txt
+```
+
+看到一堆文字跑完，最後沒有 `ERROR` 代表成功。
 
 ---
 
-### 4. 設定 `.env`
+### 步驟 4：設定 .env 檔案
 
-**Mac：**
-```bash
+**Mac：** 終端機執行：
+```
 cp .env.example .env
 ```
 
-**Windows：**
-```cmd
+**Windows：** 命令提示字元執行：
+```
 copy .env.example .env
 ```
 
-一般情況下 `.env` 內容不需要修改。若 Ragic 帳號或表單有異動，再開啟 `.env` 編輯。
+一般情況下這個檔案不需要修改。
 
 ---
 
-### 5. 設定 API 金鑰
+### 步驟 5：Mac 額外設定（Windows 跳過）
 
-**Mac — 讓 start.command 可執行（只需一次）：**
-```bash
+讓 `start.command` 可以雙擊執行，在終端機執行：
+```
 chmod +x ~/Desktop/erp-tools-ragic/start.command
 ```
 
-第一次執行程式時，若未偵測到 API 金鑰，程式會自動提示輸入。貼上後**自動儲存到本機**（`~/.boptoys-ai_key`），下次不需再輸入。
+---
 
-> 若需重設金鑰，執行：
-> ```bash
-> python3 app/ragic_upload.py --reset-key   # Mac
-> python app\ragic_upload.py --reset-key    # Windows
-> ```
+### 步驟 6：設定 Ragic API 金鑰
+
+第一次啟動程式時，程式會自動要求輸入 API 金鑰：
+
+```
+請輸入 Ragic API Key：
+```
+
+貼上金鑰後按 Enter，金鑰會自動儲存，**下次不需要再輸入**。
+
+> API 金鑰請向 Woody 索取。
 
 ---
 
-## 執行方式
+## 日常使用
 
-### 互動模式（日常使用）
+雙擊啟動程式：
 
-**Mac — 雙擊啟動：**
-直接在 Finder 雙擊 `start.command`。
+| 平台 | 方式 |
+|------|------|
+| Mac | 雙擊桌面的 `start.command` |
+| Windows | 雙擊桌面的 `start.bat` |
 
-**Windows — 雙擊啟動：**
-直接在檔案總管雙擊 `start.bat`。
+> Windows 若出現「Windows 已保護您的電腦」→ 點「更多資訊」→「仍要執行」。
 
-> 若 Windows 出現「Windows 已保護您的電腦」警告，點「更多資訊」→「仍要執行」。
-
-**Mac — 終端機：**
-```bash
-source venv/bin/activate
-python3 app/ragic_upload.py
-```
-
-**Windows — 命令提示字元：**
-```cmd
-venv\Scripts\activate
-python app\ragic_upload.py
-```
-
----
-
-### 指定單一檔案
-
-```bash
-# Mac
-python3 app/ragic_upload.py "client_order/LE/0324T221.xlsx"
-
-# Windows
-python app\ragic_upload.py "client_order\LE\0324T221.xlsx"
-```
-
-### Dry-run 模式（測試，不實際上傳）
-
-```bash
-# Mac
-python3 app/ragic_upload.py --dry-run
-
-# Windows
-python app\ragic_upload.py --dry-run
-```
-
----
-
-## 功能說明
-
-程式啟動後顯示主選單，可選擇以下三個功能：
+啟動後用 **↑↓ 方向鍵** 選擇功能，按 **Enter** 確認：
 
 ```
 請選擇功能：
@@ -170,149 +119,129 @@ python app\ragic_upload.py --dry-run
    退出
 ```
 
+> 任何步驟選錯，可以選「← 返回」退回上一步。執行前程式也會再次確認。
+
 ---
 
 ### 功能一：新建銷售單
 
-將客戶採購單 Excel 解析後自動建立 Ragic 銷貨單。
+**適用情境：** 收到客戶的採購單 Excel，要建立 Ragic 銷貨單。
 
-**步驟 1：放入採購單**
+**操作步驟：**
 
-將客戶的採購單 Excel 放入對應資料夾：
+**1. 把採購單 Excel 放進對應資料夾**
 
-| 客戶 | 資料夾 |
-|---|---|
+| 客戶 | 放到這個資料夾 |
+|------|--------------|
 | 麗嬰國際（LE） | `client_order/LE/` |
 | 玩具反斗城（TRU） | `client_order/TRU/` |
 
-**步驟 2：啟動程式，選「新建銷售單」**
+**2. 啟動程式，選「新建銷售單」**
 
-**步驟 3：勾選要處理的檔案**
+**3. 用空白鍵勾選要處理的採購單，按 Enter 確認**
 
 ```
-請選擇要處理的採購單（空白鍵勾選，Enter 確認）：
+請選擇要處理的採購單：
  ○ LE/0829-T221-0903到店.xlsx
  ○ TRU/578029潮玩波普新品.xlsx
 ```
 
-**步驟 4：依照提示回答訂單資訊**
+**4. 依照提示回答訂單資訊**
 
-1. 訂單單別
-2. 訂單狀態
-3. 稅率
-4. 運費
-5. 備註（選填）
-6. 最終確認
+程式會問幾個問題（訂單單別、狀態、稅率、運費、備註），用方向鍵選擇或直接輸入。
 
-**步驟 5：完成**
+**5. 確認後自動上傳**
 
-上傳成功後 Excel 自動移至 `done/` 資料夾，登入 Ragic 確認銷貨單已建立。
+上傳成功後，Excel 會自動移入 `done/` 資料夾。登入 Ragic 確認銷貨單已建立。
 
 ---
 
 ### 功能二：建立出貨單（銷貨單拋轉）
 
-從 Ragic 銷貨單批量建立出貨單。
+**適用情境：** 銷貨單已建立，要一鍵在 Ragic 建立對應的出貨單。
 
-**流程：**
+**操作步驟：**
 
 1. 選「建立出貨單（銷貨單拋轉）」
-2. 程式自動載入狀態為「未出貨 / 預接單 / 已收款未出貨」的銷貨單
-3. 勾選要拋轉的銷貨單（可多選）
-4. 確認後自動觸發 Ragic「建立出貨單」按鈕
+2. 程式自動列出狀態為「未出貨 / 預接單 / 已收款未出貨」的銷貨單
+3. 用**空白鍵**勾選要建立出貨單的銷貨單，按 **Enter** 確認
+4. 確認摘要後按 **Y** 執行
 5. 至 Ragic 出貨單頁面確認
 
-> 已拋轉過的銷貨單，Ragic 會自動擋掉重複建立。
+> 已建立過出貨單的銷貨單，Ragic 會自動擋掉重複建立，不用擔心。
 
 ---
 
 ### 功能三：建立出庫單（出貨單拋轉）
 
-從 Ragic 出貨單批量建立出庫單，並自動補填倉庫代碼與庫存編號。
+**適用情境：** 出貨單已建立，要一鍵在 Ragic 建立出庫單，並自動填入倉庫資訊。
 
-**流程：**
+**操作步驟：**
 
 1. 選「建立出庫單（出貨單拋轉）」
-2. 勾選要拋轉的出貨單（可多選）
-3. 選擇倉庫（預設 TW01 台灣總部在最上方）
-4. 逐一確認每個商品的庫存編號（只有一個選項時自動帶入）
-5. 確認後自動觸發「建立出庫單」並補填倉庫代碼、庫存編號
-6. 至 Ragic 出庫單頁面確認
-
----
-
-## 如何新增客戶格式
-
-每個客戶的採購單格式不同，透過以下 3 個步驟即可支援新客戶：
-
-### 步驟 1：新增 Parser
-
-在 `app/parsers/` 建立 `xxx_parser.py`（xxx 為客戶代碼小寫），繼承 `BaseParser` 並實作 `parse()` 方法：
-
-```python
-# app/parsers/abc_parser.py
-from .base import BaseParser, Order, OrderItem
-
-class AbcParser(BaseParser):
-    def parse(self) -> list[Order]:
-        # 讀取 self.filepath 的 Excel，解析出訂單列表
-        orders = []
-        # ... 解析邏輯（參考 le_parser.py 或 tru_parser.py）...
-        return orders
-```
-
-### 步驟 2：登記到 PARSERS
-
-開啟 `app/parsers/__init__.py`，加入新的 parser：
-
-```python
-from .le_parser  import LeParser
-from .tru_parser import TruParser
-from .abc_parser import AbcParser   # ← 新增
-
-PARSERS = {
-    "LE":  LeParser,
-    "TRU": TruParser,
-    "ABC": AbcParser,               # ← 新增（key 必須大寫）
-}
-```
-
-### 步驟 3：建立採購單資料夾
-
-在 `client_order/` 建立與 key 同名的資料夾，並放入 `.gitkeep` 讓 git 追蹤空資料夾：
-
-```
-client_order/
-└── ABC/
-    └── .gitkeep
-```
-
-完成後，程式啟動時會自動掃描並用對應的 parser 處理。處理完的訂單會自動歸檔至 `ABC/done/`。
+2. 用**空白鍵**勾選要建立出庫單的出貨單，按 **Enter** 確認
+3. 選擇倉庫（TW01 台灣總部預設在最上方）
+4. 確認每個商品的庫存編號（只有一個選項時程式自動帶入，不用選）
+5. 確認摘要後按 **Y** 執行
+6. 至 Ragic 出庫單頁面確認，倉庫代碼與庫存編號已自動填入
 
 ---
 
 ## 常見問題
 
 **Q：Mac 雙擊 start.command 沒有反應**
-A：需先執行 `chmod +x ~/Desktop/erp-tools-ragic/start.command`（步驟 5）。
 
-**Q：Windows 雙擊 start.bat 出現亂碼**
-A：確認系統已安裝 Python，且已執行 `pip install -r requirements.txt`。
+A：需先在終端機執行一次步驟 5 的指令（`chmod +x ...`）。
 
-**Q：找不到客戶**
-A：程式會讓你輸入關鍵字搜尋，打客戶代碼或名稱片段即可。
+---
 
-**Q：找不到條碼對應商品**
-A：該商品會顯示警告並跳過，需在 Ragic 商品單價管理補充資料後重新執行。
+**Q：Windows 雙擊 start.bat 出現亂碼或錯誤**
 
-**Q：想重新上傳已處理過的檔案**
-A：刪除 `upload_log.json` 中對應記錄（或整個檔案清空所有記錄）。
+A：確認已安裝 Python，且步驟 3 的指令執行成功（沒有 ERROR）。
 
-**Q：Windows 執行 PowerShell 出現「無法載入」錯誤**
-A：以系統管理員身分執行 PowerShell，輸入：
-```powershell
+---
+
+**Q：程式說「找不到客戶」**
+
+A：輸入客戶代碼或名稱的一部分搜尋，例如輸入「TRU」或「麗嬰」。若確認客戶存在但找不到，請聯絡 Woody 確認 Ragic 客戶資料是否有建檔。
+
+---
+
+**Q：程式說「找不到條碼對應商品」**
+
+A：該商品在 Ragic 商品單價管理尚未建檔，會自動跳過。請請 Woody 補建資料後重新執行。
+
+---
+
+**Q：想重新上傳已處理過的同一個 Excel**
+
+A：找到程式資料夾內的 `upload_log.json`，用記事本打開，刪除該筆記錄後存檔，重新執行即可。或直接刪除整個 `upload_log.json` 清空所有記錄。
+
+---
+
+**Q：Windows 出現「無法載入，因為這個系統上已停用指令碼執行」**
+
+A：以**系統管理員**身分執行 PowerShell，輸入：
+```
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
+按 Enter，輸入 `Y` 確認。
 
-**Q：程式結束後 Terminal 視窗直接關掉（Mac）**
-A：Terminal → 偏好設定 → 描述檔 → Shell → 「Shell 結束時」改為「不要關閉視窗」。
+---
+
+**Q：Mac 程式跑完視窗直接關掉，看不到結果**
+
+A：打開終端機 → 偏好設定（Cmd+,）→ 描述檔 → Shell → 「Shell 結束時」改為「不要關閉視窗」。
+
+---
+
+**Q：API 金鑰要重新設定**
+
+A：在終端機（Mac）或命令提示字元（Windows）執行：
+```
+# Mac
+python3 app/ragic_upload.py --reset-key
+
+# Windows
+python app\ragic_upload.py --reset-key
+```
