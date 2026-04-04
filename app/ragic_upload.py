@@ -951,26 +951,29 @@ def run_export_inventory(args, price_index: dict):
             code_to_barcode[base] = barcode
 
     # ── 計算各條碼的 PCS（只算 spec > 1 的）────────────────
+    # 報客戶的單位（中盒/箱類），其餘（單盒/個/袋等）跳過
+    BULK_UNITS = {"中盒", "箱", "整箱", "端盒"}
+
     inventory_pcs: Dict[str, int] = {}
     skipped_single = 0
     for rec in inventory_all.values():
         if str(rec.get("倉庫代碼", "")).strip() != warehouse_code:
             continue
+        unit = str(rec.get("單位", "")).strip()
+        if unit not in BULK_UNITS:
+            skipped_single += 1
+            continue
         prod_code = str(rec.get("商品編號", "")).strip()
         qty_raw = rec.get("數量", 0)
         spec_raw = rec.get("規格", "1")
         try:
-            qty  = int(float(qty_raw or 0))
+            qty = int(float(qty_raw or 0))
         except (ValueError, TypeError):
             qty = 0
         try:
             spec = int(float(spec_raw or 1))
         except (ValueError, TypeError):
-            continue  # 規格非數字（如「組」），跳過
-
-        if spec <= 1:
-            skipped_single += 1
-            continue
+            spec = 1
 
         barcode = code_to_barcode.get(prod_code)
         if not barcode:
