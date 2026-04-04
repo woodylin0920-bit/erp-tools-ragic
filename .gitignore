@@ -18,6 +18,12 @@ client_order/**/done/
 # 上傳記錄（個人執行記錄）
 upload_log.json
 
+# 操作日誌（本機自行清理）
+logs/
+
+# 匯出檔案（本機自行清理）
+exports/*.xlsx
+
 # macOS
 .DS_Store
 **/.DS_Store
