@@ -681,13 +681,15 @@ def run_create_outbound_order(args):
         console.print("[red]無法載入倉庫資料[/red]")
         return
 
-    # 步驟 2：選倉庫
-    wh_choices = [f"{code}  {name}" for code, name in sorted(warehouses.items())]
+    # 步驟 2：選倉庫（TW01 台灣總部預設在最上方）
+    DEFAULT_WH = "TW01"
+    sorted_wh = sorted(warehouses.items(), key=lambda x: (0 if x[0] == DEFAULT_WH else 1, x[0]))
+    wh_choices = [f"{code}  {name}" for code, name in sorted_wh]
     wh_sel = questionary.select("請選擇倉庫：", choices=wh_choices).ask()
     if not wh_sel:
         return
-    warehouse_code = wh_sel.split()[0]
-    warehouse_name = warehouses[warehouse_code]
+    warehouse_code = wh_sel.split("  ")[0].strip()
+    warehouse_name = warehouses.get(warehouse_code, "")
 
     # 步驟 3：逐一選每個商品的庫存編號
     prod_inv_map: dict = {}  # {商品編號: 庫存編號}
