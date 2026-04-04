@@ -619,6 +619,33 @@ def run_create_outbound_order(args):
     """出貨單拋轉建立出庫單，並自動補填子表的倉庫代碼和庫存編號。"""
     import time
 
+    # 載入出貨單
+    console.print("[cyan]載入出貨單資料（Ragic API）...[/cyan]")
+    records = ragic_get(DELIVERY_ORDER_SHEET)
+
+    candidates = []
+    for rid, rec in records.items():
+        candidates.append({
+            "id":    rid,
+            "label": f"{rec.get('出貨單號','?')}  {rec.get('客戶名稱','?')}  {rec.get('訂單日期','?')}",
+        })
+
+    if not candidates:
+        console.print("[yellow]沒有出貨單資料[/yellow]")
+        return
+
+    console.print(f"[green]✓ 找到 {len(candidates)} 筆出貨單[/green]")
+
+    selected = questionary.checkbox(
+        "請選擇要建立出庫單的出貨單（空白鍵勾選，Enter 確認）：",
+        choices=[questionary.Choice(c["label"], checked=False) for c in candidates],
+    ).ask()
+    if not selected:
+        console.print("[yellow]返回主選單[/yellow]")
+        return
+
+    record_ids = [c["id"] for c in candidates if c["label"] in selected]
+
     # 載入倉庫庫存，取出所有倉庫代碼選項
     console.print("[cyan]載入倉庫庫存資料（Ragic API）...[/cyan]")
     inventory = ragic_get(INVENTORY_SHEET)
@@ -647,33 +674,6 @@ def run_create_outbound_order(args):
         return
     warehouse_code = wh_sel.split()[0]
     warehouse_name = warehouses[warehouse_code]
-
-    # 載入出貨單
-    console.print("[cyan]載入出貨單資料（Ragic API）...[/cyan]")
-    records = ragic_get(DELIVERY_ORDER_SHEET)
-
-    candidates = []
-    for rid, rec in records.items():
-        candidates.append({
-            "id":    rid,
-            "label": f"{rec.get('出貨單號','?')}  {rec.get('客戶名稱','?')}  {rec.get('訂單日期','?')}",
-        })
-
-    if not candidates:
-        console.print("[yellow]沒有出貨單資料[/yellow]")
-        return
-
-    console.print(f"[green]✓ 找到 {len(candidates)} 筆出貨單[/green]")
-
-    selected = questionary.checkbox(
-        "請選擇要建立出庫單的出貨單（空白鍵勾選，Enter 確認）：",
-        choices=[questionary.Choice(c["label"], checked=False) for c in candidates],
-    ).ask()
-    if not selected:
-        console.print("[yellow]返回主選單[/yellow]")
-        return
-
-    record_ids = [c["id"] for c in candidates if c["label"] in selected]
 
     console.print("[cyan]取得 Ragic 按鈕設定...[/cyan]")
     button_id = ragic_get_action_button_id(DELIVERY_ORDER_SHEET, "建立出庫單")
