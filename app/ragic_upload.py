@@ -386,6 +386,7 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
         amount = round(it["unit_price"] * it["quantity"], 2)
         subtotal += amount
         subtable[str(-(i + 1))] = {
+            "3000829": i + 1,                # 項次
             "3000830": it["product_code"],   # 商品販售代號
             "3000832": it["unit_price"],      # 單價
             "3000833": it["quantity"],        # 數量
