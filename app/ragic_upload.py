@@ -455,7 +455,7 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
 
 BASE_CLIENT_ORDER = Path(__file__).resolve().parent.parent / "client_order"
 BASE_TEMPLATES    = Path(__file__).resolve().parent.parent / "templates"
-BASE_OUTPUT       = Path(__file__).resolve().parent.parent / "output"
+BASE_OUTPUT       = Path(__file__).resolve().parent.parent / "exports"
 
 
 def find_pending_files(base_dir: Path) -> list:
