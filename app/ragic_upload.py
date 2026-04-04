@@ -454,6 +454,8 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
 
 
 BASE_CLIENT_ORDER = Path(__file__).resolve().parent.parent / "client_order"
+BASE_TEMPLATES    = Path(__file__).resolve().parent.parent / "templates"
+BASE_OUTPUT       = Path(__file__).resolve().parent.parent / "output"
 
 
 def find_pending_files(base_dir: Path) -> list:
@@ -878,6 +880,127 @@ def run_create_outbound_order(args):
     console.print("[dim]請至 Ragic 出庫單頁面確認[/dim]")
 
 
+def run_export_inventory(args, price_index: dict):
+    """從 Ragic 倉庫庫存匯出 Excel，自動換算 PCS 填入客戶模板的現貨欄位。"""
+    import copy
+    import openpyxl
+
+    BASE_OUTPUT.mkdir(exist_ok=True)
+
+    # ── 倉庫選擇 ─────────────────────────────────────────────
+    console.print("[cyan]載入倉庫庫存資料（Ragic API）...[/cyan]")
+    inventory_all = ragic_get(INVENTORY_SHEET)
+
+    warehouses: dict = {}
+    for rec in inventory_all.values():
+        wh_code = str(rec.get("倉庫代碼", "")).strip()
+        wh_name = str(rec.get("倉庫名稱", "")).strip()
+        if wh_code:
+            warehouses[wh_code] = wh_name
+
+    if not warehouses:
+        console.print("[red]無法載入倉庫資料[/red]")
+        return
+
+    DEFAULT_WH = "TW01"
+    BACK = "← 返回"
+    sorted_wh = sorted(warehouses.items(), key=lambda x: (0 if x[0] == DEFAULT_WH else 1, x[0]))
+    wh_choices = [f"{code}  {name}" for code, name in sorted_wh]
+
+    wh_sel = questionary.select("請選擇倉庫：", choices=[BACK] + wh_choices).ask()
+    if not wh_sel or wh_sel == BACK:
+        console.print("[yellow]返回主選單[/yellow]")
+        return
+    warehouse_code = wh_sel.split("  ")[0].strip()
+    warehouse_name = warehouses.get(warehouse_code, "")
+
+    # ── 模板選擇 ─────────────────────────────────────────────
+    BASE_TEMPLATES.mkdir(exist_ok=True)
+    templates = sorted(BASE_TEMPLATES.glob("*.xlsx"))
+    if not templates:
+        console.print(f"[red]找不到模板，請將 .xlsx 模板放入 {BASE_TEMPLATES}[/red]")
+        return
+
+    tpl_labels = [t.name for t in templates]
+    selected = questionary.checkbox(
+        "請選擇模板（空白鍵勾選，Enter 確認；不選直接 Enter 返回）：",
+        choices=[questionary.Choice(label, checked=False) for label in tpl_labels],
+    ).ask()
+    if not selected:
+        console.print("[yellow]返回主選單[/yellow]")
+        return
+
+    tpl_path = templates[tpl_labels.index(selected[0])]
+
+    # ── 確認 ─────────────────────────────────────────────────
+    console.print(f"[cyan]── 即將執行：匯出庫存報表 ──[/cyan]")
+    console.print(f"  倉庫：{warehouse_code}  {warehouse_name}")
+    console.print(f"  模板：{tpl_path.name}")
+    ok = questionary.confirm("確認執行？", default=True).ask()
+    if not ok:
+        return
+
+    # ── 建立 product_code → barcode 反向索引 ─────────────────
+    code_to_barcode: Dict[str, str] = {}
+    for barcode, entries in price_index.items():
+        for entry in entries:
+            code_to_barcode[entry["product_code"]] = barcode
+
+    # ── 計算各條碼的 PCS（只算 spec > 1 的）────────────────
+    inventory_pcs: Dict[str, int] = {}
+    skipped_single = 0
+    for rec in inventory_all.values():
+        if str(rec.get("倉庫代碼", "")).strip() != warehouse_code:
+            continue
+        prod_code = str(rec.get("商品編號", "")).strip()
+        qty_raw = rec.get("數量", 0)
+        spec_raw = rec.get("規格", "1")
+        try:
+            qty  = int(float(qty_raw or 0))
+            spec = int(float(spec_raw or 1))
+        except (ValueError, TypeError):
+            continue
+
+        if spec <= 1:
+            skipped_single += 1
+            continue
+
+        barcode = code_to_barcode.get(prod_code)
+        if not barcode:
+            continue
+
+        pcs = qty * spec
+        inventory_pcs[barcode] = inventory_pcs.get(barcode, 0) + pcs
+
+    console.print(f"[green]✓ 計算完成：{len(inventory_pcs)} 種條碼有庫存（略過 {skipped_single} 筆單盒項目）[/green]")
+
+    # ── 填入模板 ─────────────────────────────────────────────
+    wb = openpyxl.load_workbook(tpl_path)
+    ws = wb.active
+
+    filled = 0
+    for row in ws.iter_rows(min_row=4):
+        d_cell = row[3]  # D 欄 index=3
+        o_cell = row[14] # O 欄 index=14
+        if d_cell.value is None:
+            continue
+        try:
+            barcode = str(int(float(d_cell.value)))
+        except (ValueError, TypeError):
+            continue
+        if barcode in inventory_pcs:
+            o_cell.value = inventory_pcs[barcode]
+            filled += 1
+
+    # ── 儲存輸出 ─────────────────────────────────────────────
+    ts = datetime.now().strftime("%Y%m%d_%H%M")
+    out_path = BASE_OUTPUT / f"inventory_{warehouse_code}_{ts}.xlsx"
+    wb.save(out_path)
+
+    console.print(f"[bold green]✓ 完成！填入 {filled} 筆，輸出至：{out_path}[/bold green]")
+    logging.info("庫存報表匯出成功 warehouse=%s filled=%d path=%s", warehouse_code, filled, out_path)
+
+
 # ── 主程式 ───────────────────────────────────────────────────
 
 def main():
@@ -932,6 +1055,7 @@ def main():
                 "新建銷售單",
                 "建立出貨單（銷貨單拋轉）",
                 "建立出庫單（出貨單拋轉）",
+                "匯出庫存報表（Excel）",
                 "退出",
             ],
         ).ask()
@@ -947,6 +1071,11 @@ def main():
             run_create_delivery_order(args)
         elif choice == "建立出庫單（出貨單拋轉）":
             run_create_outbound_order(args)
+        elif choice == "匯出庫存報表（Excel）":
+            if price_index is None:
+                price_index = load_price_index()
+                customers   = load_customers()
+            run_export_inventory(args, price_index)
 
     console.print("[bold green]再見！[/bold green]")
 
