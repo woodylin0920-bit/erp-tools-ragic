@@ -998,18 +998,29 @@ def run_export_inventory(args, price_index: dict):
     wb = openpyxl.load_workbook(tpl_path)
     ws = wb.active
 
+    # 自動偵測現貨欄位置（從 row 2 或 row 3 找「現貨」）
+    inv_col_idx = None
+    for check_row in (2, 3):
+        for cell in ws[check_row]:
+            if str(cell.value or '').strip() == '現貨':
+                inv_col_idx = cell.column - 1  # 轉為 0-indexed
+                break
+        if inv_col_idx is not None:
+            break
+    if inv_col_idx is None:
+        inv_col_idx = 14  # 預設 O 欄
+
     filled = 0
     for row in ws.iter_rows(min_row=4):
         d_cell = row[3]  # D 欄 index=3
-        o_cell = row[14] # O 欄 index=14
         if d_cell.value is None:
             continue
         try:
             barcode = str(int(float(d_cell.value)))
         except (ValueError, TypeError):
             continue
-        if barcode in inventory_pcs:
-            o_cell.value = inventory_pcs[barcode]
+        if barcode in inventory_pcs and inv_col_idx < len(row):
+            row[inv_col_idx].value = inventory_pcs[barcode]
             filled += 1
 
     # ── 儲存輸出 ─────────────────────────────────────────────
