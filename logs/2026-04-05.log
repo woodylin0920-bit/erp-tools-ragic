@@ -1,0 +1,14 @@
+2026-04-05 01:53:33,105 INFO 重複跳過 log_key=LE_AD227_PO-1256789 ragic_id=1116
+2026-04-05 01:53:33,105 INFO 重複跳過 log_key=LE_AG185_PO-1256790 ragic_id=1117
+2026-04-05 01:53:48,081 INFO 重複跳過 log_key=LE_AD227_PO-1256789 ragic_id=1116
+2026-04-05 01:53:48,081 INFO 重複跳過 log_key=LE_AG185_PO-1256790 ragic_id=1117
+2026-04-05 01:57:16,892 INFO 重複跳過 log_key=LE_AD227_PO-1256789 ragic_id=1116
+2026-04-05 01:57:16,893 INFO 重複跳過 log_key=LE_AG185_PO-1256790 ragic_id=1117
+2026-04-05 01:57:45,239 INFO 重複跳過 log_key=LE_AD227_PO-1256789 ragic_id=1116
+2026-04-05 01:58:24,473 INFO 銷貨單建立成功 ragic_id=1119 file=0324T221.xlsx log_key=LE_AD227_PO-1256789
+2026-04-05 01:58:24,479 INFO 重複跳過 log_key=LE_AG185_PO-1256790 ragic_id=1117
+2026-04-05 01:58:27,207 INFO 檔案移至 done: /Users/woody/Desktop/erp-tools-ragic/client_order/LE/done/0324T221.xlsx
+2026-04-05 02:01:53,556 INFO 重複跳過 log_key=LE_AD227_PO-1256789 ragic_id=1119
+2026-04-05 02:02:13,605 INFO 銷貨單建立成功 ragic_id=1120 file=0324T221.xlsx log_key=LE_AD227_PO-1256789
+2026-04-05 02:02:13,610 INFO 重複跳過 log_key=LE_AG185_PO-1256790 ragic_id=1117
+2026-04-05 02:02:15,147 INFO 檔案移至 done: /Users/woody/Desktop/erp-tools-ragic/client_order/LE/done/0324T221.xlsx

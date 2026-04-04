@@ -1,0 +1,19 @@
+2026-04-04 15:44:39,739 INFO 出貨單建立成功 sales_id=1115
+2026-04-04 15:44:40,362 INFO 出貨單建立成功 sales_id=1114
+2026-04-04 15:45:23,189 INFO 出庫單觸發成功 delivery_id=1245
+2026-04-04 15:45:23,506 INFO 出庫單觸發成功 delivery_id=1244
+2026-04-04 15:45:28,604 INFO 出庫單補填成功 outbound_id=949 warehouse=TW01
+2026-04-04 15:45:28,928 INFO 出庫單補填成功 outbound_id=948 warehouse=TW01
+2026-04-04 15:48:25,815 INFO 銷貨單建立成功 ragic_id=1116 file=0324T221.xlsx log_key=LE_AD227_PO-1256789
+2026-04-04 15:48:39,331 INFO 銷貨單建立成功 ragic_id=1117 file=0324T221.xlsx log_key=LE_AG185_PO-1256790
+2026-04-04 15:48:39,335 INFO 檔案移至 done: /Users/woody/Desktop/erp-tools-ragic/client_order/LE/done/0324T221.xlsx
+2026-04-04 15:49:38,008 INFO 出貨單建立成功 sales_id=1117
+2026-04-04 15:49:38,620 INFO 出貨單建立成功 sales_id=1116
+2026-04-04 15:50:26,728 INFO 出庫單觸發成功 delivery_id=1247
+2026-04-04 15:50:27,056 INFO 出庫單觸發成功 delivery_id=1246
+2026-04-04 15:50:31,241 INFO 出庫單補填成功 outbound_id=951 warehouse=TW01
+2026-04-04 15:50:31,590 INFO 出庫單補填成功 outbound_id=950 warehouse=TW01
+2026-04-04 18:45:42,387 INFO 庫存報表匯出成功 warehouse=TW01 filled=0 path=/Users/woody/Desktop/erp-tools-ragic/output/inventory_TW01_20260404_1845.xlsx
+2026-04-04 18:51:05,352 INFO 庫存報表匯出成功 warehouse=TW01 filled=0 path=/Users/woody/Desktop/erp-tools-ragic/output/inventory_TW01_20260404_1851.xlsx
+2026-04-04 18:55:33,361 INFO 庫存報表匯出成功 warehouse=TW01 filled=13 path=/Users/woody/Desktop/erp-tools-ragic/output/inventory_TW01_20260404_1855.xlsx
+2026-04-04 19:01:21,181 INFO 庫存報表匯出成功 warehouse=TW01 filled=14 path=/Users/woody/Desktop/erp-tools-ragic/output/inventory_TW01_20260404_1901.xlsx
