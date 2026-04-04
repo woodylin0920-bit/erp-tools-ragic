@@ -25,6 +25,7 @@ A specialized Python toolkit designed to streamline **Ragic Cloud DB** API inter
 | Create Sales Order | Parse customer purchase order Excel files and auto-create Ragic sales orders |
 | Create Delivery Order | One-click conversion from sales orders to delivery orders |
 | Create Outbound Order | One-click conversion from delivery orders to outbound orders with automatic warehouse data fill-in |
+| Export Inventory Report | Pull live warehouse stock from Ragic, auto-convert to PCS, and fill into customer quote template (Excel) |
 
 ## 🚀 Quick Start
 
