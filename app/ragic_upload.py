@@ -384,13 +384,21 @@ def ask_order_options(is_unregistered: bool = False) -> tuple:
     shipping_str = questionary.text("運費（預設 0）", default="0").ask()
     shipping_fee = float(shipping_str or "60")
 
+    commission = questionary.select(
+        "業務分潤",
+        choices=["8%", "2%", "（無）"],
+        default="（無）",
+    ).ask()
+    commission = "" if commission == "（無）" else commission
+
     notes = questionary.text("備註（留空直接按 Enter）", default="").ask()
     internal_notes = questionary.text("內部備注（留空直接按 Enter）", default="").ask()
-    return order_type, order_status, tax_rate, shipping_fee, notes or "", internal_notes or ""
+    return order_type, order_status, tax_rate, shipping_fee, notes or "", internal_notes or "", commission
 
 
 def show_confirmation(customer: dict, resolved: list, order_type: str, order_status: str,
-                      tax_rate: str, shipping_fee: float, notes: str, internal_notes: str) -> tuple:
+                      tax_rate: str, shipping_fee: float, notes: str, internal_notes: str,
+                      commission: str = "") -> tuple:
     subtotal = sum(Decimal(str(it["amount"])) for it in resolved)
     tax_amount = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"), ROUND_HALF_UP) if tax_rate == "5%" else Decimal("0")
     total = subtotal + tax_amount + Decimal(str(shipping_fee))
@@ -401,6 +409,8 @@ def show_confirmation(customer: dict, resolved: list, order_type: str, order_sta
     console.print(f"課稅別: 營業稅              稅率: [cyan]{tax_rate}[/cyan]")
     console.print(f"小計: {subtotal:>12,.2f}     稅額: {tax_amount:,.2f}")
     console.print(f"運費: {shipping_fee:>12.2f}     總計: [bold]{total:,.2f}[/bold]")
+    if commission:
+        console.print(f"業務分潤: [cyan]{commission}[/cyan]")
     if notes:
         console.print(f"備註: {notes}")
     if internal_notes:
@@ -412,7 +422,8 @@ def show_confirmation(customer: dict, resolved: list, order_type: str, order_sta
 # ── Payload 組裝 ─────────────────────────────────────────────
 
 def build_payload(customer: dict, resolved: list, order_type: str, order_status: str,
-                  tax_rate: str, shipping_fee: float, notes: str, internal_notes: str) -> dict:
+                  tax_rate: str, shipping_fee: float, notes: str, internal_notes: str,
+                  commission: str = "") -> dict:
     now   = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
     today = date.today().strftime("%Y/%m/%d")
 
@@ -446,6 +457,7 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
         "3000837": float(tax_amount),        # 稅額
         "3000839": float(total),             # 總金額(含稅)
         "3000840": notes,                    # 備註
+        "1000065": commission,               # 業務分潤
         "1000074": f"【AI建單】 {internal_notes}".strip() if internal_notes else "【AI建單】",  # 內部備注
         "3000845": now,                      # 建檔日期時間
         "3000847": now,                      # 最後修改日期時間
@@ -518,9 +530,9 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
         show_items_table(customer, order.store_code, order.po_number, resolved)
 
         is_unregistered = customer["code"] == UNREGISTERED_CUSTOMER["code"]
-        order_type, order_status, tax_rate, shipping_fee, notes, internal_notes = ask_order_options(is_unregistered)
+        order_type, order_status, tax_rate, shipping_fee, notes, internal_notes, commission = ask_order_options(is_unregistered)
 
-        show_confirmation(customer, resolved, order_type, order_status, tax_rate, shipping_fee, notes, internal_notes)
+        show_confirmation(customer, resolved, order_type, order_status, tax_rate, shipping_fee, notes, internal_notes, commission)
 
         confirmed = questionary.confirm("確認送出此訂單？", default=True).ask()
         if not confirmed:
@@ -537,7 +549,7 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
             console.print("[yellow]已跳過[/yellow]")
             continue
 
-        payload = build_payload(customer, resolved, order_type, order_status, tax_rate, shipping_fee, notes, internal_notes)
+        payload = build_payload(customer, resolved, order_type, order_status, tax_rate, shipping_fee, notes, internal_notes, commission)
         console.print(json.dumps(_humanize_payload(payload), ensure_ascii=False, indent=2))
 
         if args.dry_run:
