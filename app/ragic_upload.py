@@ -941,10 +941,14 @@ def run_export_inventory(args, price_index: dict):
         return
 
     # ── 建立 product_code → barcode 反向索引 ─────────────────
+    # 商品單價代號格式為 BBB042-1（有尾綴），庫存商品編號為 BBB042（無尾綴）
+    # 去掉 -數字 尾綴後建立反向索引
+    import re as _re
     code_to_barcode: Dict[str, str] = {}
     for barcode, entries in price_index.items():
         for entry in entries:
-            code_to_barcode[entry["product_code"]] = barcode
+            base = _re.sub(r'-\d+$', '', entry["product_code"])
+            code_to_barcode[base] = barcode
 
     # ── 計算各條碼的 PCS（只算 spec > 1 的）────────────────
     inventory_pcs: Dict[str, int] = {}
@@ -957,9 +961,12 @@ def run_export_inventory(args, price_index: dict):
         spec_raw = rec.get("規格", "1")
         try:
             qty  = int(float(qty_raw or 0))
+        except (ValueError, TypeError):
+            qty = 0
+        try:
             spec = int(float(spec_raw or 1))
         except (ValueError, TypeError):
-            continue
+            continue  # 規格非數字（如「組」），跳過
 
         if spec <= 1:
             skipped_single += 1
