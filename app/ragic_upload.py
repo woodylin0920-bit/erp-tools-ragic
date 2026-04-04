@@ -549,6 +549,12 @@ def run_new_sales_order(args, price_index: dict, customers: list):
             break
 
         excel_path = all_files[labels.index(selected[0])]
+
+        console.print(f"[cyan]── 即將處理：{excel_path.parent.name}/{excel_path.name} ──[/cyan]")
+        ok = questionary.confirm("確認執行？", default=True).ask()
+        if not ok:
+            continue
+
         s, o, _ = process_file(excel_path, args, price_index, customers)
         total_success += s
         total_orders  += o
@@ -580,15 +586,24 @@ def run_create_delivery_order(args):
 
     console.print(f"[green]✓ 找到 {len(candidates)} 筆待拋轉銷貨單[/green]")
 
-    selected = questionary.checkbox(
-        "請選擇要建立出貨單的銷貨單（空白鍵勾選，Enter 確認）：",
-        choices=[questionary.Choice(c["label"], checked=False) for c in candidates],
-    ).ask()
-    if not selected:
-        console.print("[yellow]返回主選單[/yellow]")
-        return
+    record_ids = None
+    while True:
+        selected = questionary.checkbox(
+            "請選擇要建立出貨單的銷貨單（空白鍵勾選，Enter 確認）：",
+            choices=[questionary.Choice(c["label"], checked=False) for c in candidates],
+        ).ask()
+        if not selected:
+            console.print("[yellow]返回主選單[/yellow]")
+            return
 
-    record_ids = [c["id"] for c in candidates if c["label"] in selected]
+        record_ids = [c["id"] for c in candidates if c["label"] in selected]
+
+        console.print("[cyan]── 即將執行：建立出貨單 ──[/cyan]")
+        for label in selected:
+            console.print(f"  {label}")
+        ok = questionary.confirm("確認執行？", default=True).ask()
+        if ok:
+            break
 
     console.print("[cyan]取得 Ragic 按鈕設定...[/cyan]")
     button_id = ragic_get_action_button_id(SALES_ORDER_SHEET, "建立出貨單")
@@ -637,35 +652,10 @@ def run_create_outbound_order(args):
 
     console.print(f"[green]✓ 找到 {len(candidates)} 筆出貨單[/green]")
 
-    selected = questionary.checkbox(
-        "請選擇要建立出庫單的出貨單（空白鍵勾選，Enter 確認）：",
-        choices=[questionary.Choice(c["label"], checked=False) for c in candidates],
-    ).ask()
-    if not selected:
-        console.print("[yellow]返回主選單[/yellow]")
-        return
-
-    selected_records = [c for c in candidates if c["label"] in selected]
-    record_ids = [c["id"] for c in selected_records]
-
-    # 從已選出貨單的子表收集商品清單
-    DELIVERY_SUBTABLE = "_subtable_3000886"
-    products_needed: list = []  # [{"prod": "AAA001", "name": "其他"}, ...]
-    seen_prods: set = set()
-    for c in selected_records:
-        rec = records[c["id"]]
-        sub = rec.get(DELIVERY_SUBTABLE, {})
-        for row in sub.values():
-            prod = str(row.get("商品編號*", "") or row.get("商品編號", "")).strip()
-            if prod and prod not in seen_prods:
-                seen_prods.add(prod)
-                products_needed.append({"prod": prod, "name": str(row.get("商品名稱", "")).strip()})
-
-    # 載入倉庫庫存
+    # 載入倉庫庫存（一次性，不隨步驟重複）
     console.print("[cyan]載入倉庫庫存資料（Ragic API）...[/cyan]")
     inventory = ragic_get(INVENTORY_SHEET)
 
-    # 建立 {倉庫代碼: 倉庫名稱} 和 {(倉庫代碼, 商品編號) → [庫存編號, ...]}
     warehouses: dict = {}
     inv_by_wh_prod: Dict[tuple, list] = {}
     for rec in inventory.values():
@@ -682,36 +672,89 @@ def run_create_outbound_order(args):
         console.print("[red]無法載入倉庫資料[/red]")
         return
 
-    # 步驟 2：選倉庫（TW01 台灣總部預設在最上方）
     DEFAULT_WH = "TW01"
+    BACK = "← 返回"
     sorted_wh = sorted(warehouses.items(), key=lambda x: (0 if x[0] == DEFAULT_WH else 1, x[0]))
     wh_choices = [f"{code}  {name}" for code, name in sorted_wh]
-    wh_sel = questionary.select("請選擇倉庫：", choices=wh_choices).ask()
-    if not wh_sel:
-        return
-    warehouse_code = wh_sel.split("  ")[0].strip()
-    warehouse_name = warehouses.get(warehouse_code, "")
+    DELIVERY_SUBTABLE = "_subtable_3000886"
 
-    # 步驟 3：逐一選每個商品的庫存編號
-    prod_inv_map: dict = {}  # {商品編號: 庫存編號}
-    for item in products_needed:
-        prod = item["prod"]
-        options = inv_by_wh_prod.get((warehouse_code, prod), [])
-        if not options:
-            console.print(f"[yellow]⚠ {prod} 在 {warehouse_code} 無庫存紀錄，跳過[/yellow]")
-            prod_inv_map[prod] = ""
-            continue
-        if len(options) == 1:
-            prod_inv_map[prod] = options[0]
-            console.print(f"[dim]{prod} {item['name']} → {options[0]}（唯一選項，自動帶入）[/dim]")
-        else:
-            inv_sel = questionary.select(
-                f"請選擇 {prod} {item['name']} 的庫存編號：",
-                choices=options,
+    step = 1
+    selected_records = record_ids = None
+    warehouse_code = warehouse_name = None
+    prod_inv_map = None
+
+    while True:
+        if step == 1:
+            selected = questionary.checkbox(
+                "請選擇要建立出庫單的出貨單（空白鍵勾選，Enter 確認）：",
+                choices=[questionary.Choice(c["label"], checked=False) for c in candidates],
             ).ask()
-            if not inv_sel:
+            if not selected:
+                console.print("[yellow]返回主選單[/yellow]")
                 return
-            prod_inv_map[prod] = inv_sel
+            selected_records = [c for c in candidates if c["label"] in selected]
+            record_ids = [c["id"] for c in selected_records]
+            step = 2
+
+        elif step == 2:
+            wh_sel = questionary.select("請選擇倉庫：", choices=[BACK] + wh_choices).ask()
+            if not wh_sel or wh_sel == BACK:
+                step = 1
+                continue
+            warehouse_code = wh_sel.split("  ")[0].strip()
+            warehouse_name = warehouses.get(warehouse_code, "")
+            step = 3
+
+        elif step == 3:
+            products_needed: list = []
+            seen_prods: set = set()
+            for c in selected_records:
+                sub = records[c["id"]].get(DELIVERY_SUBTABLE, {})
+                for row in sub.values():
+                    prod = str(row.get("商品編號*", "") or row.get("商品編號", "")).strip()
+                    if prod and prod not in seen_prods:
+                        seen_prods.add(prod)
+                        products_needed.append({"prod": prod, "name": str(row.get("商品名稱", "")).strip()})
+
+            prod_inv_map = {}
+            cancelled = False
+            for item in products_needed:
+                prod = item["prod"]
+                options = inv_by_wh_prod.get((warehouse_code, prod), [])
+                if not options:
+                    console.print(f"[yellow]⚠ {prod} 在 {warehouse_code} 無庫存紀錄，跳過[/yellow]")
+                    prod_inv_map[prod] = ""
+                    continue
+                if len(options) == 1:
+                    prod_inv_map[prod] = options[0]
+                    console.print(f"[dim]{prod} {item['name']} → {options[0]}（唯一選項，自動帶入）[/dim]")
+                else:
+                    inv_sel = questionary.select(
+                        f"請選擇 {prod} {item['name']} 的庫存編號：",
+                        choices=[BACK] + options,
+                    ).ask()
+                    if not inv_sel or inv_sel == BACK:
+                        cancelled = True
+                        break
+                    prod_inv_map[prod] = inv_sel
+            if cancelled:
+                step = 2
+                continue
+            step = 4
+
+        elif step == 4:
+            console.print("[cyan]── 即將執行：建立出庫單 ──[/cyan]")
+            for c in selected_records:
+                console.print(f"  {c['label']}")
+            console.print(f"  倉庫：{warehouse_code}  {warehouse_name}")
+            for prod, inv in prod_inv_map.items():
+                if inv:
+                    console.print(f"  {prod} → {inv}")
+            ok = questionary.confirm("確認執行？", default=True).ask()
+            if not ok:
+                step = 1
+                continue
+            break
 
     console.print("[cyan]取得 Ragic 按鈕設定...[/cyan]")
     button_id = ragic_get_action_button_id(DELIVERY_ORDER_SHEET, "建立出庫單")
