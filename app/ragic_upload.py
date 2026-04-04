@@ -756,27 +756,21 @@ def run_create_outbound_order(args):
             console.print(f"[yellow]⚠ 出庫單 {oid} 沒有子表項目，跳過[/yellow]")
             continue
 
-        # 為每一個子表列補填倉庫代碼、庫存編號
-        # 步驟一：填必填欄位（用 CID，欄位名稱會被 Ragic validation 擋掉）
-        # 步驟二：填倉庫名稱（非必填可用欄位名稱，和必填混在一起時 Ragic 會整批 INVALID）
-        required_rows = {}
-        name_rows = {}
+        # 填倉庫代碼、庫存編號（用 CID，必填欄位用欄位名稱會被 Ragic validation 擋掉）
+        # 注意：倉庫名稱(3001125)為唯讀，填入倉庫代碼後 Ragic 自動帶入，不需手動寫
+        updated_rows = {}
         for row_id, row in subtable.items():
             if str(row_id).startswith("_"):
                 continue
             prod = str(row.get("商品編號", "")).strip()
             inv_code = prod_inv_map.get(prod, "")
-            required_rows[str(row_id)] = {
+            updated_rows[str(row_id)] = {
                 "3001124": warehouse_code,  # 倉庫代碼
                 "3001126": inv_code,        # 庫存編號
             }
-            name_rows[str(row_id)] = {"倉庫名稱": warehouse_name}
 
-        patch_payload = {OUTBOUND_ITEMS_SUBTABLE_KEY: required_rows}
         try:
-            ragic_patch(OUTBOUND_ORDER_SHEET, oid, patch_payload)
-            # 第二步：補填倉庫名稱（必須在必填欄位寫入後才能成功）
-            ragic_patch(OUTBOUND_ORDER_SHEET, oid, {OUTBOUND_ITEMS_SUBTABLE_KEY: name_rows})
+            ragic_patch(OUTBOUND_ORDER_SHEET, oid, {OUTBOUND_ITEMS_SUBTABLE_KEY: updated_rows})
             patched += 1
             console.print(f"[green]✓ 出庫單 {oid} 補填完成（{warehouse_code}）[/green]")
         except Exception as e:
