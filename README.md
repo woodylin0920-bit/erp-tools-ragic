@@ -36,6 +36,19 @@ For first-time setup, refer to the [Chinese documentation](README.zh-TW.md).
 
 ---
 
+## 🏭 Industry Experience & Impact
+
+Real-world track record delivering high-reliability, enterprise-grade ERP solutions for fast-growing businesses:
+
+**Case Study: TOYBEBOP INTERNATIONAL CO., LTD.**
+
+- **Scope:** End-to-end Ragic ERP architecture design, data automation integration, and workflow optimization.
+- **Convenience Store Expansion:** Optimized operations and data sync logic to support brand entry into **7-ELEVEN and FamilyMart** nationwide networks.
+- **Department Store Coverage:** Full integration with **all major department store chains in Taiwan**, including Shin Kong Mitsukoshi, SOGO, Far Eastern, eslite, Mitsui Outlet Park, and LaLaport.
+- **Technical Challenge:** Processing high-frequency, complex order data across multiple channel formats with real-time inventory synchronization.
+
+---
+
 ## 🤝 Let's Collaborate
 
 I specialize in **ERP Automation** and **Custom System Integrations**. If you're looking to optimize your business efficiency, I offer professional consulting and development services for:
