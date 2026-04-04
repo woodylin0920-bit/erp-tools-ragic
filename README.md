@@ -1,55 +1,55 @@
-# Ragic ERP 自動化工具
+# 🚀 Ragic ERP Automation & Integration Tools
 
-幫你把客戶採購單自動建立到 Ragic，省去手動輸入的時間。
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/woodylin0920-bit)
 
----
-
-## 我能用這個工具做什麼？
-
-| 功能 | 說明 |
-|------|------|
-| 新建銷售單 | 把客戶寄來的採購單 Excel，自動建成 Ragic 銷貨單 |
-| 建立出貨單 | 從銷貨單一鍵產生出貨單 |
-| 建立出庫單 | 從出貨單一鍵產生出庫單，自動填入倉庫和庫存資訊 |
-
-目前支援：**LE**、**TRU** 格式的採購單。
+🌐 [繁體中文說明](README.zh-TW.md)
 
 ---
 
-## 第一次使用？
+## 📌 Project Overview
 
-請先看 👉 [完整安裝與設定說明](readme/README.md)
+A specialized Python toolkit designed to streamline **Ragic Cloud DB** API interactions. This project simplifies the process of automating ERP workflows, enabling efficient data synchronization, automated reporting, and seamless third-party system connectivity.
 
----
+## ✨ Key Features
 
-## 日常使用（已設定完成者）
+* **Advanced API Abstraction**: Encapsulates complex HTTP requests into intuitive Python methods.
+* **Workflow Automation**: Minimizes manual data entry and maximizes ERP operational efficiency.
+* **Data Pipeline Ready**: Easily integrates into modern data infrastructures, CRM systems, or AI-driven workflows.
 
-**Mac：** 雙擊桌面的 `start.command`
+## 🛠️ Supported Workflows
 
-**Windows：** 雙擊桌面的 `start.bat`
+| Feature | Description |
+|---------|-------------|
+| Create Sales Order | Parse customer purchase order Excel files and auto-create Ragic sales orders |
+| Create Delivery Order | One-click conversion from sales orders to delivery orders |
+| Create Outbound Order | One-click conversion from delivery orders to outbound orders with automatic warehouse data fill-in |
 
-啟動後用方向鍵選擇功能，按 Enter 確認：
+## 🚀 Quick Start
 
-```
-請選擇功能：
- » 新建銷售單
-   建立出貨單（銷貨單拋轉）
-   建立出庫單（出貨單拋轉）
-   退出
-```
+**Mac:** Double-click `start.command`
 
-> 任何步驟選錯都可以退回上一步，執行前也會再次確認。
+**Windows:** Double-click `start.bat`
 
----
-
-## 遇到問題？
-
-查看 [常見問題](readme/README.md#常見問題) 或聯絡 Woody。
+For first-time setup, refer to the [Chinese documentation](README.zh-TW.md).
 
 ---
 
-## 合作洽詢
+## 🤝 Let's Collaborate
 
-如果你也需要 Ragic ERP 自動化、客製化開發或相關專案合作，歡迎聯繫：
+I specialize in **ERP Automation** and **Custom System Integrations**. If you're looking to optimize your business efficiency, I offer professional consulting and development services for:
 
-📧 [ceo@whalesparkglobal.com](mailto:ceo@whalesparkglobal.com)
+* **Enterprise Architecture Planning & Optimization**
+* **Cross-system API Integration** (E-commerce / CRM / Finance)
+* **Custom Python Automation Scripts & ERP Solutions**
+
+---
+
+## 📬 Contact
+
+Open to technical discussions and project collaborations:
+
+* **Founder:** Woody Lin
+* **Venture:** Whale Spark Global Co., Ltd.
+* **Email:** [ceo@whalesparkglobal.com](mailto:ceo@whalesparkglobal.com)
