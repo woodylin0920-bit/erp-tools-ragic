@@ -430,10 +430,11 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
     # 計算各項金額
     subtable = {}
     subtotal = Decimal("0")
+    total_items = len(resolved)
     for i, it in enumerate(resolved):
         amount = (Decimal(str(it["unit_price"])) * Decimal(str(it["quantity"]))).quantize(Decimal("0.01"), ROUND_HALF_UP)
         subtotal += amount
-        subtable[str(-(i + 1))] = {
+        subtable[str(-(total_items - i))] = {
             "3000829": i + 1,                # 項次
             "3000830": it["product_code"],   # 商品販售代號
             "3000832": it["unit_price"],      # 單價
