@@ -765,8 +765,8 @@ def run_create_outbound_order(args):
             inv_code = prod_inv_map.get(prod, "")
             updated_rows[str(row_id)] = {
                 "3001124": warehouse_code,   # 倉庫代碼（必填欄位用 CID）
-                "倉庫名稱": warehouse_name,
-                "3001126": inv_code,          # 庫存編號（必填欄位用 CID）
+                "3001125": warehouse_name,   # 倉庫名稱（必填欄位用 CID）
+                "3001126": inv_code,         # 庫存編號（必填欄位用 CID）
             }
 
         patch_payload = {OUTBOUND_ITEMS_SUBTABLE_KEY: updated_rows}
