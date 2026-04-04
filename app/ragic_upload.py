@@ -644,36 +644,71 @@ def run_create_outbound_order(args):
         console.print("[yellow]返回主選單[/yellow]")
         return
 
-    record_ids = [c["id"] for c in candidates if c["label"] in selected]
+    selected_records = [c for c in candidates if c["label"] in selected]
+    record_ids = [c["id"] for c in selected_records]
 
-    # 載入倉庫庫存，取出所有倉庫代碼選項
+    # 從已選出貨單的子表收集商品清單
+    DELIVERY_SUBTABLE = "_subtable_3000886"
+    products_needed: list = []  # [{"prod": "AAA001", "name": "其他"}, ...]
+    seen_prods: set = set()
+    for c in selected_records:
+        rec = records[c["id"]]
+        sub = rec.get(DELIVERY_SUBTABLE, {})
+        for row in sub.values():
+            prod = str(row.get("商品編號*", "") or row.get("商品編號", "")).strip()
+            if prod and prod not in seen_prods:
+                seen_prods.add(prod)
+                products_needed.append({"prod": prod, "name": str(row.get("商品名稱", "")).strip()})
+
+    # 載入倉庫庫存
     console.print("[cyan]載入倉庫庫存資料（Ragic API）...[/cyan]")
     inventory = ragic_get(INVENTORY_SHEET)
 
-    # 建立 {(倉庫代碼, 商品編號) → (倉庫名稱, 庫存編號)} 對應
-    inv_map: Dict[tuple, dict] = {}
-    warehouses: dict = {}  # {倉庫代碼: 倉庫名稱}
+    # 建立 {倉庫代碼: 倉庫名稱} 和 {(倉庫代碼, 商品編號) → [庫存編號, ...]}
+    warehouses: dict = {}
+    inv_by_wh_prod: Dict[tuple, list] = {}
     for rec in inventory.values():
         wh_code  = str(rec.get("倉庫代碼", "")).strip()
         wh_name  = str(rec.get("倉庫名稱", "")).strip()
         prod     = str(rec.get("商品編號", "")).strip()
         inv_code = str(rec.get("庫存編號", "")).strip()
-        if wh_code and prod and inv_code:
-            inv_map[(wh_code, prod)] = {"倉庫名稱": wh_name, "庫存編號": inv_code}
         if wh_code:
             warehouses[wh_code] = wh_name
+        if wh_code and prod and inv_code:
+            inv_by_wh_prod.setdefault((wh_code, prod), []).append(inv_code)
 
     if not warehouses:
         console.print("[red]無法載入倉庫資料[/red]")
         return
 
-    # 讓使用者選倉庫
+    # 步驟 2：選倉庫
     wh_choices = [f"{code}  {name}" for code, name in sorted(warehouses.items())]
     wh_sel = questionary.select("請選擇倉庫：", choices=wh_choices).ask()
     if not wh_sel:
         return
     warehouse_code = wh_sel.split()[0]
     warehouse_name = warehouses[warehouse_code]
+
+    # 步驟 3：逐一選每個商品的庫存編號
+    prod_inv_map: dict = {}  # {商品編號: 庫存編號}
+    for item in products_needed:
+        prod = item["prod"]
+        options = inv_by_wh_prod.get((warehouse_code, prod), [])
+        if not options:
+            console.print(f"[yellow]⚠ {prod} 在 {warehouse_code} 無庫存紀錄，跳過[/yellow]")
+            prod_inv_map[prod] = ""
+            continue
+        if len(options) == 1:
+            prod_inv_map[prod] = options[0]
+            console.print(f"[dim]{prod} {item['name']} → {options[0]}（唯一選項，自動帶入）[/dim]")
+        else:
+            inv_sel = questionary.select(
+                f"請選擇 {prod} {item['name']} 的庫存編號：",
+                choices=options,
+            ).ask()
+            if not inv_sel:
+                return
+            prod_inv_map[prod] = inv_sel
 
     console.print("[cyan]取得 Ragic 按鈕設定...[/cyan]")
     button_id = ragic_get_action_button_id(DELIVERY_ORDER_SHEET, "建立出庫單")
@@ -725,11 +760,11 @@ def run_create_outbound_order(args):
             if str(row_id).startswith("_"):
                 continue
             prod = str(row.get("商品編號", "")).strip()
-            inv_entry = inv_map.get((warehouse_code, prod), {})
+            inv_code = prod_inv_map.get(prod, "")
             updated_rows[str(row_id)] = {
-                "3001124": warehouse_code,               # 倉庫代碼（必填欄位用 CID）
+                "3001124": warehouse_code,   # 倉庫代碼（必填欄位用 CID）
                 "倉庫名稱": warehouse_name,
-                "3001126": inv_entry.get("庫存編號", ""),  # 庫存編號（必填欄位用 CID）
+                "3001126": inv_code,          # 庫存編號（必填欄位用 CID）
             }
 
         patch_payload = {OUTBOUND_ITEMS_SUBTABLE_KEY: updated_rows}
