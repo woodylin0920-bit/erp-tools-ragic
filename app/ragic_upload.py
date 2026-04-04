@@ -136,7 +136,7 @@ def ragic_post(sheet_path: str, payload: dict) -> dict:
 
 
 def ragic_patch(sheet_path: str, record_id: str, payload: dict) -> dict:
-    url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/{record_id}?api"
+    url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/{record_id}?api&doLinkLoad=true"
     r = requests.patch(url, headers=_auth_header(), json=payload, timeout=30)
     r.raise_for_status()
     return r.json()
