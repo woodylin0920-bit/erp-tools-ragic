@@ -45,3 +45,11 @@
 ## 遇到問題？
 
 查看 [常見問題](readme/README.md#常見問題) 或聯絡 Woody。
+
+---
+
+## 合作洽詢
+
+如果你也需要 Ragic ERP 自動化、客製化開發或相關專案合作，歡迎聯繫：
+
+📧 [ceo@whalesparkglobal.com](mailto:ceo@whalesparkglobal.com)
