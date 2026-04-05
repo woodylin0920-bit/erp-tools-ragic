@@ -27,6 +27,23 @@ A specialized Python toolkit designed to streamline **Ragic Cloud DB** API inter
 | Create Outbound Order | One-click conversion from delivery orders to outbound orders with automatic warehouse data fill-in |
 | Export Inventory Report | Pull live warehouse stock from Ragic, auto-convert to PCS, and fill into customer quote template (Excel) |
 
+## 📋 Templates
+
+Two Excel templates are included for client communication:
+
+| Template | Purpose |
+|----------|---------|
+| `inventory-template.xlsx` | Full inventory overview — sent to clients to show current Taiwan stock levels; reference images per SKU included |
+| `quote-template.xlsx` | Client order form — clients fill in quantities per store (up to 5 stores); includes current stock, order total formula, and reference images per SKU |
+
+### Template Features
+
+- **Reference images** embedded per SKU (sourced from product catalog)
+- **Auto-filled inventory** — export function pulls live Ragic stock and fills the 現貨 (stock) column automatically
+- **Order total formula** — `=SUM(store columns)` calculates total units ordered per SKU
+- **Styled headers** — color-coded sections (product info / order fields / store columns)
+- **Output filename** reflects the template used: `quote_TW01_20260405_1430.xlsx`
+
 ## 🚀 Quick Start
 
 **Mac:** Double-click `start.command`

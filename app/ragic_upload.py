@@ -926,7 +926,7 @@ def run_export_inventory(args, price_index: dict):
 
     # ── 模板選擇 ─────────────────────────────────────────────
     BASE_TEMPLATES.mkdir(exist_ok=True)
-    templates = sorted(BASE_TEMPLATES.glob("*.xlsx"))
+    templates = sorted(BASE_TEMPLATES.glob("*.xlsx"), reverse=True)
     if not templates:
         console.print(f"[red]找不到模板，請將 .xlsx 模板放入 {BASE_TEMPLATES}[/red]")
         return
@@ -1008,7 +1008,8 @@ def run_export_inventory(args, price_index: dict):
         if inv_col_idx is not None:
             break
     if inv_col_idx is None:
-        inv_col_idx = 14  # 預設 O 欄
+        console.print("[red]✗ 此模板找不到「現貨」欄位，無法匯出庫存。請選擇 inventory 或 quote 模板。[/red]")
+        return
 
     filled = 0
     for row in ws.iter_rows(min_row=4):
@@ -1025,7 +1026,8 @@ def run_export_inventory(args, price_index: dict):
 
     # ── 儲存輸出 ─────────────────────────────────────────────
     ts = datetime.now().strftime("%Y%m%d_%H%M")
-    out_path = BASE_OUTPUT / f"inventory_{warehouse_code}_{ts}.xlsx"
+    tpl_prefix = tpl_path.stem.replace("-template", "")
+    out_path = BASE_OUTPUT / f"{tpl_prefix}_{warehouse_code}_{ts}.xlsx"
     wb.save(out_path)
 
     console.print(f"[bold green]✓ 完成！填入 {filled} 筆，輸出至：{out_path}[/bold green]")

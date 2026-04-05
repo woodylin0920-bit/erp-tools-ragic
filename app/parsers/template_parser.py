@@ -28,7 +28,7 @@ STORE_START_COL = 13  # Column N (0-indexed)
 BARCODE_RE = re.compile(r'^\d{12,14}$')
 
 # 不當作店號的保留字
-SKIP_VALS = {"TTL", "TOTAL", "合計", "小計", "總數", "現貨", "在途",
+SKIP_VALS = {"TTL", "TOTAL", "合計", "小計", "總數", "訂單總數", "現貨", "在途",
              "PO號碼", "PO", "PO#", "SUBTOTAL", ""}
 
 
