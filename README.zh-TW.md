@@ -25,11 +25,23 @@
 
 ## 🚀 快速啟動
 
-**Mac：** 雙擊 `start.command`
-
-**Windows：** 雙擊 `start.bat`
+### Mac
+雙擊 `start.command`
 
 > 第一次執行會自動安裝所需套件，稍等片刻即可。
+
+### Windows（第一次安裝）
+
+1. 前往 GitHub 下載專案 ZIP：
+   **Code → Download ZIP** → 解壓縮到任意資料夾
+2. 雙擊 `start.bat`
+   - 若尚未安裝 Python，會**自動安裝**（需要網路）
+   - 安裝完成後，依提示**再雙擊一次** `start.bat`
+   - 自動建立環境、安裝套件，完成後進入程式
+
+> 之後每次只要雙擊 `start.bat` 即可。
+>
+> 建議使用 **Windows Terminal**（Win 11 預設）而非傳統 CMD，顯示效果較佳。
 
 啟動後，用 `↑` `↓` 選擇功能，按 `Enter` 確認：
 
