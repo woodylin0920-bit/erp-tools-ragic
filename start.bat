@@ -4,14 +4,16 @@ cd /d "%~dp0"
 
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [Setup] Python not found. Attempting to install via winget...
-    winget install Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements
-    if errorlevel 1 (
-        echo [Error] Auto-install failed.
-        echo Please install Python 3.11 manually from https://www.python.org/downloads/
-        echo Make sure to check "Add Python to PATH" during installation.
-        pause
-        exit /b 1
+    echo [Setup] Python not found. Attempting auto-install...
+    winget --version >nul 2>&1
+    if not errorlevel 1 (
+        echo [Setup] Installing Python via winget...
+        winget install Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements
+    ) else (
+        echo [Setup] winget not available. Downloading Python installer...
+        powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe' -OutFile '%TEMP%\python_installer.exe'"
+        echo [Setup] Running Python installer (please follow the prompts, check "Add Python to PATH")...
+        "%TEMP%\python_installer.exe" /passive InstallAllUsers=0 PrependPath=1
     )
     echo [Done] Python installed. Please restart this script.
     pause
