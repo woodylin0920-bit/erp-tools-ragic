@@ -4,11 +4,18 @@ cd /d "%~dp0"
 
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [Error] Python not found.
-    echo Please install Python 3.8+ from https://www.python.org/downloads/
-    echo Make sure to check "Add Python to PATH" during installation.
+    echo [Setup] Python not found. Attempting to install via winget...
+    winget install Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements
+    if errorlevel 1 (
+        echo [Error] Auto-install failed.
+        echo Please install Python 3.11 manually from https://www.python.org/downloads/
+        echo Make sure to check "Add Python to PATH" during installation.
+        pause
+        exit /b 1
+    )
+    echo [Done] Python installed. Please restart this script.
     pause
-    exit /b 1
+    exit /b 0
 )
 
 if not exist "venv\" (
