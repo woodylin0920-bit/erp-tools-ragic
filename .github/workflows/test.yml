@@ -1,0 +1,36 @@
+name: Windows Compatibility Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          venv\Scripts\activate
+          pip install -r requirements.txt --quiet
+
+      - name: Check imports
+        run: |
+          venv\Scripts\activate
+          python -c "import openpyxl, questionary, rich, requests, dotenv, PIL; print('All imports OK')"
+
+      - name: Check app syntax
+        run: |
+          venv\Scripts\activate
+          python -m py_compile app/ragic_upload.py
+          python -m py_compile app/parsers/template_parser.py
+          echo "Syntax OK"
