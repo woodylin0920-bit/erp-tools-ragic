@@ -17,6 +17,7 @@ if not exist "venv\" (
     call venv\Scripts\activate.bat
 )
 
+echo [Tip] For best experience, use Windows Terminal instead of CMD.
 python app\ragic_upload.py %*
 echo.
 pause

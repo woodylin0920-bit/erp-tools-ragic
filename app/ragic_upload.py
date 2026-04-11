@@ -131,7 +131,7 @@ def _auth_header() -> dict:
         if not api_key:
             console.print("[red]未輸入 API Key，結束[/red]")
             sys.exit(1)
-        _KEY_FILE.write_text(api_key)
+        _KEY_FILE.write_text(api_key, encoding="utf-8")
         os.environ["RAGIC_API_KEY"] = api_key
         console.print(f"[green]✓ API Key 已儲存至 {_KEY_FILE}，下次不需再輸入[/green]")
     return {"Authorization": f"Basic {api_key}"}
