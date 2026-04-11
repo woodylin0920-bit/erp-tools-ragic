@@ -1,4 +1,12 @@
 @echo off
+:: If not already running in Windows Terminal, relaunch in it
+if not defined WT_SESSION (
+    where wt >nul 2>&1
+    if not errorlevel 1 (
+        wt cmd /c "%~f0"
+        exit /b
+    )
+)
 chcp 65001 >nul
 cd /d "%~dp0"
 
