@@ -2,13 +2,17 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 
-:: 第一次執行自動建立虛擬環境並安裝套件
 if not exist "venv\" (
-    echo 🔧 首次執行，正在安裝環境（約需 1 分鐘）...
+    echo [Setup] First run - installing environment, please wait...
     python -m venv venv
+    if errorlevel 1 (
+        echo [Error] Python not found. Please install Python 3.8+ first.
+        pause
+        exit /b 1
+    )
     call venv\Scripts\activate.bat
     pip install -r requirements.txt --quiet
-    echo ✅ 環境安裝完成
+    echo [Done] Environment ready.
 ) else (
     call venv\Scripts\activate.bat
 )
