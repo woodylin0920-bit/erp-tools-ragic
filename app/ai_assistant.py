@@ -140,7 +140,7 @@ TOOLS = [
 
 SYSTEM_PROMPT = """你是潮玩波普國際有限公司（Boptoys）的 ERP 助理，專門協助分析和查詢 Ragic 資料庫中的銷售、庫存、客戶資料。
 
-請用繁體中文回答所有問題。
+請依照用戶使用的語言回答（繁體中文或英文）。
 
 你的主要能力：
 - 查詢銷貨單、出貨單、庫存、客戶資料
@@ -356,7 +356,7 @@ def run_agent_mode():
             continue
         if user_input.lower() in ("退出", "exit", "quit", "bye", "q"):
             break
-        if user_input.lower() in ("重設 key", "reset key", "重設key"):
+        if user_input.lower() in ("重設 key", "reset key", "重設key", "resetkey"):
             _ANTHROPIC_KEY_FILE.unlink(missing_ok=True)
             os.environ.pop("ANTHROPIC_API_KEY", None)
             console.print("[#B0A898]已清除 API Key[/#B0A898]")
