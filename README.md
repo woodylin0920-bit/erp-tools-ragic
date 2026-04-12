@@ -89,6 +89,20 @@ Two Excel templates are included for client communication:
 
 For first-time setup, refer to the [Chinese documentation](README.zh-TW.md).
 
+## 📸 Screenshots
+
+| Welcome Screen | Main Menu |
+|:-:|:-:|
+| ![Welcome](assets/screen-welcome.png) | ![Menu](assets/screen-menu.png) |
+
+| Create Delivery Order | Export Inventory |
+|:-:|:-:|
+| ![Delivery](assets/screen-delivery.png) | ![Export](assets/screen-export.png) |
+
+| Agent Mode (AI Analytics) |
+|:-:|
+| ![Agent](assets/screen-agent.png) |
+
 ---
 
 ## 🏭 Industry Experience & Impact

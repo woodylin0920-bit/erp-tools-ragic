@@ -23,6 +23,22 @@
 
 ---
 
+## 📸 介面截圖
+
+| 歡迎畫面 | 主選單 |
+|:-:|:-:|
+| ![Welcome](assets/screen-welcome.png) | ![Menu](assets/screen-menu.png) |
+
+| 建立出貨單 | 匯出庫存報表 |
+|:-:|:-:|
+| ![Delivery](assets/screen-delivery.png) | ![Export](assets/screen-export.png) |
+
+| Agent mode（AI 數據分析） |
+|:-:|
+| ![Agent](assets/screen-agent.png) |
+
+---
+
 ## 🚀 快速啟動
 
 ### Mac
