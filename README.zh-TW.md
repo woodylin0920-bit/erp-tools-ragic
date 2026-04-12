@@ -25,17 +25,17 @@
 
 ## 📸 介面截圖
 
-| 歡迎畫面 | 主選單 |
-|:-:|:-:|
-| ![Welcome](assets/screen-welcome.png) | ![Menu](assets/screen-menu.png) |
-
-| 建立出貨單 | 匯出庫存報表 |
-|:-:|:-:|
-| ![Delivery](assets/screen-delivery.png) | ![Export](assets/screen-export.png) |
-
-| Agent mode（AI 數據分析） |
-|:-:|
-| ![Agent](assets/screen-agent.png) |
+<p align="center">
+  <img src="assets/screen-welcome.png" width="48%" />
+  <img src="assets/screen-menu.png" width="48%" />
+</p>
+<p align="center">
+  <img src="assets/screen-delivery.png" width="48%" />
+  <img src="assets/screen-export.png" width="48%" />
+</p>
+<p align="center">
+  <img src="assets/screen-agent.png" width="80%" />
+</p>
 
 ---
 
