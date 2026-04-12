@@ -1153,11 +1153,24 @@ def _get_recent_activity() -> list:
 
 
 def _show_welcome():
-    """顯示仿 Claude Code 風格的歡迎畫面。"""
-    username = _get_current_user()
-    welcome_line = f"歡迎回來，{username}！" if username else "歡迎回來！"
+    """顯示仿 Claude Code 風格的歡迎畫面。三支 API 並行抓取，加速啟動。"""
+    import threading
+    results = {"username": "", "revenue": [], "activity": _get_recent_activity()}
 
-    revenue_rows = _get_revenue_summary()
+    def _fetch_user():
+        results["username"] = _get_current_user()
+
+    def _fetch_revenue():
+        results["revenue"] = _get_revenue_summary()
+
+    t1 = threading.Thread(target=_fetch_user, daemon=True)
+    t2 = threading.Thread(target=_fetch_revenue, daemon=True)
+    t1.start(); t2.start()
+    t1.join(timeout=4); t2.join(timeout=4)
+
+    username = results["username"]
+    welcome_line = f"歡迎回來，{username}！" if username else "歡迎回來！"
+    revenue_rows = results["revenue"]
 
     # 左欄
     left = Table.grid(padding=(0, 2))
