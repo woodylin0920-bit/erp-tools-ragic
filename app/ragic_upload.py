@@ -1089,7 +1089,7 @@ def _calc_revenue(data: dict, date_from: str, date_to: str) -> float:
             continue
         d = order_date[:10].replace("-", "/")
         if date_from <= d <= date_to:
-            val = rec.get("總計", rec.get("訂單總計", "0")) or "0"
+            val = rec.get("總金額(含稅)", rec.get("小計", rec.get("總計", "0"))) or "0"
             try:
                 total += float(str(val).replace(",", ""))
             except ValueError:
