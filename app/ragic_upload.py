@@ -1134,7 +1134,7 @@ def _compute_revenue_summaries(data: dict, username: str = "") -> tuple:
             y_to = today.strftime("%Y/%m/%d")
             for rec in data.values():
                 if not isinstance(rec, dict): continue
-                if rec.get("建檔人員") != username: continue
+                if rec.get("建檔人員", "").lower() != username.lower(): continue
                 order_date = rec.get("訂單日期", "")
                 if not order_date: continue
                 d = order_date[:10].replace("-", "/")
@@ -1198,7 +1198,7 @@ def _show_welcome():
     t1.join(timeout=4); t2.join(timeout=4)
 
     username = results["username"]
-    welcome_line = f"歡迎回來，{username}！" if username else "歡迎回來！"
+    welcome_line = f"歡迎回來，{username.capitalize()}！" if username else "歡迎回來！"
     revenue_rows, personal_stats = _compute_revenue_summaries(results["sales_data"], username)
 
     # 左欄
