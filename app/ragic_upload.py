@@ -22,6 +22,9 @@ from typing import Dict, List, Optional
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+_VERSION_FILE = Path(__file__).resolve().parent.parent / "VERSION"
+APP_VERSION = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "?"
+
 import questionary
 import requests
 
@@ -1294,7 +1297,7 @@ def _show_welcome():
     layout.add_column(ratio=2)
     layout.add_row(left, right)
 
-    console.print(Panel(layout, title="[bold #C5A059]Ragic ERP Tools[/bold #C5A059]", subtitle="[dim]v1.1.1[/dim]", border_style="#C5A059"))
+    console.print(Panel(layout, title="[bold #C5A059]Ragic ERP Tools[/bold #C5A059]", subtitle=f"[dim]v{APP_VERSION}[/dim]", border_style="#C5A059"))
     console.print(Rule(style="#C5A059"))
 
 
