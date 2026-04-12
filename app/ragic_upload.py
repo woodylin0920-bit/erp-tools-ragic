@@ -1097,42 +1097,68 @@ def _calc_revenue(data: dict, date_from: str, date_to: str) -> float:
     return total
 
 
-def _get_revenue_summary() -> list:
-    """回傳 [(label, amount_str), ...] 上月、本季、本年，失敗回傳空列表。"""
+def _compute_revenue_summaries(data: dict, username: str = "") -> tuple:
+    """
+    從已抓取的銷貨單資料計算公司營業額與個人業績。
+    回傳 (company_rows, personal_stats)
+      company_rows : [(label, amount_str), ...]
+      personal_stats: {"year": float, "count": int} 或 None
+    """
+    import datetime as dt
     try:
-        import datetime as dt
         today = date.today()
 
-        # 上個月
         first_this_month = today.replace(day=1)
         lm_end = first_this_month - dt.timedelta(days=1)
         lm_start = lm_end.replace(day=1)
-
-        # 本季
         q = (today.month - 1) // 3
         q_start = date(today.year, q * 3 + 1, 1)
-        q_end = today
-
-        # 本年
         y_start = date(today.year, 1, 1)
-        y_end = today
 
-        data = ragic_get(SALES_ORDER_SHEET, limit=2000)
-
-        results = []
+        company_rows = []
         lm_total = _calc_revenue(data, lm_start.strftime("%Y/%m/%d"), lm_end.strftime("%Y/%m/%d"))
         if lm_total:
-            results.append((f"上月 ({lm_start.strftime('%Y/%m')})", f"NT$ {lm_total:,.0f}"))
-
-        q_total = _calc_revenue(data, q_start.strftime("%Y/%m/%d"), q_end.strftime("%Y/%m/%d"))
+            company_rows.append((f"上月 ({lm_start.strftime('%Y/%m')})", f"NT$ {lm_total:,.0f}"))
+        q_total = _calc_revenue(data, q_start.strftime("%Y/%m/%d"), today.strftime("%Y/%m/%d"))
         if q_total:
-            results.append((f"本季 (Q{q + 1})", f"NT$ {q_total:,.0f}"))
-
-        y_total = _calc_revenue(data, y_start.strftime("%Y/%m/%d"), y_end.strftime("%Y/%m/%d"))
+            company_rows.append((f"本季 (Q{q + 1})", f"NT$ {q_total:,.0f}"))
+        y_total = _calc_revenue(data, y_start.strftime("%Y/%m/%d"), today.strftime("%Y/%m/%d"))
         if y_total:
-            results.append((f"本年 ({today.year})", f"NT$ {y_total:,.0f}"))
+            company_rows.append((f"本年 ({today.year})", f"NT$ {y_total:,.0f}"))
 
-        return results
+        personal_stats = None
+        if username:
+            py_total = 0.0
+            py_count = 0
+            y_from = y_start.strftime("%Y/%m/%d")
+            y_to = today.strftime("%Y/%m/%d")
+            for rec in data.values():
+                if not isinstance(rec, dict): continue
+                if rec.get("建檔人員") != username: continue
+                order_date = rec.get("訂單日期", "")
+                if not order_date: continue
+                d = order_date[:10].replace("-", "/")
+                if y_from <= d <= y_to:
+                    val = rec.get("總金額(含稅)", rec.get("小計", "0")) or "0"
+                    try:
+                        py_total += float(str(val).replace(",", ""))
+                        py_count += 1
+                    except ValueError:
+                        pass
+            if py_count:
+                personal_stats = {"year": py_total, "count": py_count}
+
+        return company_rows, personal_stats
+    except Exception:
+        return [], None
+
+
+def _get_revenue_summary() -> list:
+    """相容舊呼叫，回傳公司營業額列表。"""
+    try:
+        data = ragic_get(SALES_ORDER_SHEET, limit=2000)
+        rows, _ = _compute_revenue_summaries(data)
+        return rows
     except Exception:
         return []
 
@@ -1153,29 +1179,38 @@ def _get_recent_activity() -> list:
 
 
 def _show_welcome():
-    """顯示仿 Claude Code 風格的歡迎畫面。三支 API 並行抓取，加速啟動。"""
+    """顯示仿 Claude Code 風格的歡迎畫面。兩支 API 並行抓取，加速啟動。"""
     import threading
-    results = {"username": "", "revenue": [], "activity": _get_recent_activity()}
+    results = {"username": "", "sales_data": {}, "activity": _get_recent_activity()}
 
     def _fetch_user():
         results["username"] = _get_current_user()
 
-    def _fetch_revenue():
-        results["revenue"] = _get_revenue_summary()
+    def _fetch_sales():
+        try:
+            results["sales_data"] = ragic_get(SALES_ORDER_SHEET, limit=2000)
+        except Exception:
+            results["sales_data"] = {}
 
     t1 = threading.Thread(target=_fetch_user, daemon=True)
-    t2 = threading.Thread(target=_fetch_revenue, daemon=True)
+    t2 = threading.Thread(target=_fetch_sales, daemon=True)
     t1.start(); t2.start()
     t1.join(timeout=4); t2.join(timeout=4)
 
     username = results["username"]
     welcome_line = f"歡迎回來，{username}！" if username else "歡迎回來！"
-    revenue_rows = results["revenue"]
+    revenue_rows, personal_stats = _compute_revenue_summaries(results["sales_data"], username)
 
     # 左欄
     left = Table.grid(padding=(0, 2))
     left.add_column()
     left.add_row(Text(welcome_line, style="bold #D4C9B0"))
+    if personal_stats:
+        today_year = date.today().year
+        left.add_row(Text(
+            f"你的業績（{today_year}）：NT$ {personal_stats['year']:,.0f}  ·  {personal_stats['count']} 筆訂單",
+            style="#B8860B"
+        ))
     left.add_row("")
     left.add_row(Text("Boptoys", style="bold #C5A059"))
     left.add_row(Text("潮玩波普國際有限公司", style="#C5A059"))
