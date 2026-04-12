@@ -32,13 +32,34 @@ A specialized Python toolkit designed to streamline **Ragic Cloud DB** API inter
 
 A conversational AI assistant built into the app. Powered by Claude (Anthropic API).
 
-**What you can ask:**
-- `「幫我查 TW01 庫存」` — Query live Ragic inventory
-- `「1～3 月哪些客戶最穩定」` — Sales trend analysis
-- `「BBB042 應該補多少貨」` — Restock recommendations based on sales history
-- `「幫我把本月銷貨單存到桌面」` — Export data to Excel
+**Inventory Queries**
+```
+「TW01 現在還有多少 BBB042？」
+「幫我查所有倉庫的庫存狀況」
+```
+
+**Sales Analysis**
+```
+「1～3 月銷售前五名 SKU 是哪些？」
+「上個月哪些客戶沒有下單？」
+「新光三越最近一次下單是什麼時候？」
+```
+
+**Restock Recommendations**
+```
+「根據過去三個月銷量，BBB042 應該補多少貨？」
+「哪些 SKU 庫存不足，需要補貨？」
+```
+
+**Export to Excel**
+```
+「把本月未出貨的訂單整理成 Excel 存到桌面」
+「幫我匯出 TW01 庫存不足 10 件的商品清單」
+```
 
 **Setup:** Requires an [Anthropic API key](https://console.anthropic.com). On first launch, the app will prompt you to enter it — stored locally, no config file editing needed.
+
+> Type `重設 key` inside Agent mode to update your API key.
 
 ---
 
