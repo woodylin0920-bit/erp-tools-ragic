@@ -1212,7 +1212,7 @@ def _show_welcome():
         p_table.add_column(style="bold #B8860B", no_wrap=True)
         p_table.add_column(style="dim", no_wrap=True)
         p_table.add_row(
-            Text(f"你的業績（{today_year}）", style="dim"),
+            Text(f"業績 {today_year}", style="dim"),
             f"NT$ {personal_stats['year']:,.0f}",
             f"· {personal_stats['count']} 筆",
         )
@@ -1243,8 +1243,8 @@ def _show_welcome():
 
     # 組合成雙欄
     layout = Table.grid(expand=True, padding=(0, 1))
-    layout.add_column(ratio=1)
-    layout.add_column(ratio=1)
+    layout.add_column(ratio=3)
+    layout.add_column(ratio=2)
     layout.add_row(left, right)
 
     console.print(Panel(layout, title="[bold #C5A059]Ragic ERP Tools[/bold #C5A059]", border_style="#C5A059"))
