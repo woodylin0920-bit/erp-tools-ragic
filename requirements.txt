@@ -1,3 +1,4 @@
+anthropic>=0.25
 openpyxl>=3.1
 Pillow>=10.0
 questionary>=2.0
