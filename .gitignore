@@ -35,3 +35,5 @@ exports/*.xlsx
 # 編輯器
 .vscode/
 .idea/
+docs/
+readme/
