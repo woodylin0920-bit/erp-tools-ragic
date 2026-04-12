@@ -1361,7 +1361,7 @@ def main():
                 "建立出庫單（出貨單拋轉）",
                 "匯出庫存報表（Excel）",
                 "新竹物流建單",
-                "Agent mode",
+                "Agent mode（AI 數據分析）",
                 "退出 (Esc)",
             ],
         )
@@ -1384,7 +1384,7 @@ def main():
             run_export_inventory(args, price_index)
         elif choice == "新竹物流建單":
             console.print("[#FF7700]功能開發中，敬請期待[/#FF7700]")
-        elif choice == "Agent mode":
+        elif choice == "Agent mode（AI 數據分析）":
             from ai_assistant import run_agent_mode
             run_agent_mode()
 
