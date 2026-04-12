@@ -327,7 +327,7 @@ def run_agent_mode():
     messages = []
 
     console.print(Rule(style="#C5A059"))
-    console.print(Text("  ◈ Agent Mode | 智慧決策助手", style="bold #C5A059"))
+    console.print(Text("  ◈ Agent Mode | AI 數據分析", style="bold #C5A059"))
     console.print(Rule(style="#C5A059"))
     console.print()
     console.print("  [bold #C5A059]▸ 即時查詢 (Real-time Query)[/bold #C5A059]")
