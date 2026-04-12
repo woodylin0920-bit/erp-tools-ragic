@@ -1260,11 +1260,11 @@ def _show_welcome():
         p_table = Table.grid(padding=(0, 1))
         p_table.add_column(no_wrap=True)
         p_table.add_column(style="bold #B8860B", no_wrap=True)
-        p_table.add_column(style="dim", no_wrap=True)
+        p_table.add_column(style="#B0A898", no_wrap=True)
         p_table.add_row(
-            Text(f"業績 {today_year}", style="dim"),
+            Text(f"我的業績（{today_year}）", style="#B0A898"),
             f"NT$ {personal_stats['year']:,.0f}",
-            f"· {personal_stats['count']} 筆",
+            f"  共 {personal_stats['count']} 筆訂單",
         )
         left.add_row(p_table)
     left.add_row("")
