@@ -350,10 +350,14 @@ def run_agent_mode():
     console.print(Rule(style="#3a3a3a"))
     console.print()
 
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import InMemoryHistory
+    _session = PromptSession(history=InMemoryHistory())
+
     while True:
         try:
             console.print(Rule(style="#3a3a3a"))
-            user_input = input("❯  ").strip()
+            user_input = _session.prompt("❯  ").strip()
             console.print(Rule(style="#3a3a3a"))
         except (KeyboardInterrupt, EOFError):
             break

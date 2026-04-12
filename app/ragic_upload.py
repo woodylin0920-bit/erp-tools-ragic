@@ -67,6 +67,16 @@ def _select_with_esc(message: str, choices: list):
     except Exception:
         pass
     return q.ask()
+
+
+def _pause():
+    """操作完成後等待用戶按 Enter，避免結果訊息被主選單蓋掉。"""
+    try:
+        input("\n[按 Enter 返回主選單]")
+    except (KeyboardInterrupt, EOFError):
+        pass
+
+
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -232,12 +242,30 @@ def ragic_trigger_button(sheet_path: str, record_id: str, button_id) -> dict:
     return r.json()
 
 
+def _friendly_error(msg: str) -> str:
+    """將常見 Ragic 錯誤訊息轉換為友善中文說明。"""
+    m = str(msg).lower()
+    if "already exist" in m or "duplicate" in m or "重複" in m:
+        return "此記錄已存在（Ragic 擋掉重複建立），請至 Ragic 確認是否已建單"
+    if "access right" in m or "permission" in m or "403" in m:
+        return "權限不足，請確認 API Key 是否有此表單的存取權限"
+    if "invalid" in m and "key" in m:
+        return "API Key 無效，請重新設定（執行時選「重設 key」）"
+    if "timeout" in m or "timed out" in m:
+        return "連線逾時，請確認網路狀況後重試"
+    if "connect" in m or "connection" in m:
+        return "無法連線至 Ragic，請確認網路是否正常"
+    if "not found" in m or "404" in m:
+        return "找不到對應記錄，可能已被刪除或編號有誤"
+    return msg
+
+
 # ── 快取載入 ─────────────────────────────────────────────────
 
 def load_price_index() -> Dict[str, list]:
     """載入商品單價管理，建立 {條碼: [商品...]} 索引。"""
-    console.print("[#B0A898]載入商品單價資料（Ragic API）...[/#B0A898]")
-    records = ragic_get(PRODUCT_PRICE_SHEET)
+    with console.status("[#B0A898]載入商品單價資料...[/#B0A898]", spinner="dots"):
+        records = ragic_get(PRODUCT_PRICE_SHEET)
     index: Dict[str, list] = {}
     for rec in records.values():
         barcode = str(rec.get("國際條碼", "")).strip()
@@ -251,14 +279,14 @@ def load_price_index() -> Dict[str, list]:
             "price":        float(rec.get("價格", 0) or 0),
         }
         index.setdefault(barcode, []).append(entry)
-    console.print(f"[#5A9A4A]✓ 載入 {len(index)} 種條碼的商品[/#5A9A4A]")
+    console.print(f"[#5A9A4A]✓ 載入 {len(index)} 種商品[/#5A9A4A]")
     return index
 
 
 def load_customers() -> list:
     """載入客戶資料表。"""
-    console.print("[#B0A898]載入客戶資料（Ragic API）...[/#B0A898]")
-    records = ragic_get(CUSTOMER_SHEET)
+    with console.status("[#B0A898]載入客戶資料...[/#B0A898]", spinner="dots"):
+        records = ragic_get(CUSTOMER_SHEET)
     customers = []
     for rec in records.values():
         customers.append({
@@ -603,9 +631,10 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
                     }
                     _save_upload_log(upload_log)
                 else:
-                    console.print(f"[red]✗ Ragic 回傳異常：{result}[/red]")
+                    msg = result.get("msg", "") or str(result)
+                    console.print(f"[red]✗ 建單失敗：{_friendly_error(msg)}[/red]")
             except Exception as e:
-                console.print(f"[red]✗ 送出失敗：{e}[/red]")
+                console.print(f"[red]✗ 送出失敗：{_friendly_error(str(e))}[/red]")
 
     if success_count > 0 and not args.dry_run:
         done_dir = excel_path.parent / "done"
@@ -658,8 +687,8 @@ def run_create_delivery_order(args):
     """銷貨單批量拋轉建立出貨單（訂單狀態：未出貨 / 預接單 / 已收款未出貨）。"""
     TARGET_STATUSES = {"未出貨", "預接單", "已收款未出貨"}
 
-    console.print("[#B0A898]載入銷貨單資料（Ragic API）...[/#B0A898]")
-    records = ragic_get(SALES_ORDER_SHEET)
+    with console.status("[#B0A898]載入銷貨單資料...[/#B0A898]", spinner="dots"):
+        records = ragic_get(SALES_ORDER_SHEET)
 
     candidates = []
     for rid, rec in records.items():
@@ -695,8 +724,8 @@ def run_create_delivery_order(args):
         if ok:
             break
 
-    console.print("[#B0A898]取得 Ragic 按鈕設定...[/#B0A898]")
-    button_id = ragic_get_action_button_id(SALES_ORDER_SHEET, "建立出貨單")
+    with console.status("[#B0A898]取得按鈕設定...[/#B0A898]", spinner="dots"):
+        button_id = ragic_get_action_button_id(SALES_ORDER_SHEET, "建立出貨單")
     if button_id is None:
         console.print("[red]找不到「建立出貨單」按鈕，請確認 Ragic 表單設定[/red]")
         return
@@ -715,20 +744,21 @@ def run_create_delivery_order(args):
                 logging.info("出貨單建立成功 sales_id=%s", rid)
                 success += 1
             else:
-                console.print(f"[red]✗ {rid} 拋轉失敗：{result.get('msg', result)}[/red]")
+                console.print(f"[red]✗ {rid} 拋轉失敗：{_friendly_error(result.get('msg', str(result)))}[/red]")
                 logging.warning("出貨單建立失敗 sales_id=%s msg=%s", rid, result.get('msg', result))
         except Exception as e:
-            console.print(f"[red]✗ {rid} 發生錯誤：{e}[/red]")
+            console.print(f"[red]✗ {rid} 發生錯誤：{_friendly_error(str(e))}[/red]")
             logging.error("出貨單建立錯誤 sales_id=%s error=%s", rid, e)
     console.print(f"[bold #5A9A4A]完成！{success}/{len(record_ids)} 筆出貨單建立成功[/bold #5A9A4A]")
     console.print("[dim]請至 Ragic 出貨單頁面確認[/dim]")
+    _pause()
 
 
 def run_create_outbound_order(args):
     """出貨單拋轉建立出庫單，並自動補填子表的倉庫代碼和庫存編號。"""
     # 載入出貨單
-    console.print("[#B0A898]載入出貨單資料（Ragic API）...[/#B0A898]")
-    records = ragic_get(DELIVERY_ORDER_SHEET)
+    with console.status("[#B0A898]載入出貨單資料...[/#B0A898]", spinner="dots"):
+        records = ragic_get(DELIVERY_ORDER_SHEET)
 
     candidates = []
     for rid, rec in records.items():
@@ -744,8 +774,8 @@ def run_create_outbound_order(args):
     console.print(f"[#5A9A4A]✓ 找到 {len(candidates)} 筆出貨單[/#5A9A4A]")
 
     # 載入倉庫庫存（一次性，不隨步驟重複）
-    console.print("[#B0A898]載入倉庫庫存資料（Ragic API）...[/#B0A898]")
-    inventory = ragic_get(INVENTORY_SHEET)
+    with console.status("[#B0A898]載入倉庫庫存資料...[/#B0A898]", spinner="dots"):
+        inventory = ragic_get(INVENTORY_SHEET)
 
     warehouses: dict = {}
     inv_by_wh_prod: Dict[tuple, list] = {}
@@ -847,8 +877,8 @@ def run_create_outbound_order(args):
                 continue
             break
 
-    console.print("[#B0A898]取得 Ragic 按鈕設定...[/#B0A898]")
-    button_id = ragic_get_action_button_id(DELIVERY_ORDER_SHEET, "建立出庫單")
+    with console.status("[#B0A898]取得按鈕設定...[/#B0A898]", spinner="dots"):
+        button_id = ragic_get_action_button_id(DELIVERY_ORDER_SHEET, "建立出庫單")
     if button_id is None:
         console.print("[red]找不到「建立出庫單」按鈕，請確認 Ragic 表單設定[/red]")
         return
@@ -869,10 +899,10 @@ def run_create_outbound_order(args):
                 console.print(f"[#5A9A4A]✓ {rid} 拋轉成功[/#5A9A4A]")
                 logging.info("出庫單觸發成功 delivery_id=%s", rid)
             else:
-                console.print(f"[red]✗ {rid} 拋轉失敗：{result.get('msg', result)}[/red]")
+                console.print(f"[red]✗ {rid} 拋轉失敗：{_friendly_error(result.get('msg', str(result)))}[/red]")
                 logging.warning("出庫單觸發失敗 delivery_id=%s msg=%s", rid, result.get('msg', result))
         except Exception as e:
-            console.print(f"[red]✗ {rid} 發生錯誤：{e}[/red]")
+            console.print(f"[red]✗ {rid} 發生錯誤：{_friendly_error(str(e))}[/red]")
             logging.error("出庫單觸發錯誤 delivery_id=%s error=%s", rid, e)
 
     console.print("[dim]等待 Ragic 建立出庫單（3 秒）...[/dim]")
@@ -922,6 +952,7 @@ def run_create_outbound_order(args):
 
     console.print(f"[bold #5A9A4A]完成！{patched}/{len(new_ids)} 筆出庫單已補填倉庫資料[/bold #5A9A4A]")
     console.print("[dim]請至 Ragic 出庫單頁面確認[/dim]")
+    _pause()
 
 
 def run_export_inventory(args, price_index: dict):
@@ -932,8 +963,8 @@ def run_export_inventory(args, price_index: dict):
     BASE_OUTPUT.mkdir(exist_ok=True)
 
     # ── 倉庫選擇 ─────────────────────────────────────────────
-    console.print("[#B0A898]載入倉庫庫存資料（Ragic API）...[/#B0A898]")
-    inventory_all = ragic_get(INVENTORY_SHEET)
+    with console.status("[#B0A898]載入倉庫庫存資料...[/#B0A898]", spinner="dots"):
+        inventory_all = ragic_get(INVENTORY_SHEET)
 
     warehouses: dict = {}
     for rec in inventory_all.values():
@@ -1070,6 +1101,7 @@ def run_export_inventory(args, price_index: dict):
 
     console.print(f"[bold #5A9A4A]✓ 完成！填入 {filled} 筆，輸出至：{out_path}[/bold #5A9A4A]")
     logging.info("庫存報表匯出成功 warehouse=%s filled=%d path=%s", warehouse_code, filled, out_path)
+    _pause()
 
 
 # ── 歡迎畫面 ─────────────────────────────────────────────────
@@ -1262,7 +1294,7 @@ def _show_welcome():
     layout.add_column(ratio=2)
     layout.add_row(left, right)
 
-    console.print(Panel(layout, title="[bold #C5A059]Ragic ERP Tools[/bold #C5A059]", border_style="#C5A059"))
+    console.print(Panel(layout, title="[bold #C5A059]Ragic ERP Tools[/bold #C5A059]", subtitle="[dim]v1.1.1[/dim]", border_style="#C5A059"))
     console.print(Rule(style="#C5A059"))
 
 
