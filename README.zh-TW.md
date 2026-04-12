@@ -25,17 +25,34 @@
 
 ## 📸 介面截圖
 
-<p align="center">
-  <img src="assets/screen-welcome.png" width="48%" />
-  <img src="assets/screen-menu.png" width="48%" />
-</p>
-<p align="center">
-  <img src="assets/screen-delivery.png" width="48%" />
-  <img src="assets/screen-export.png" width="48%" />
-</p>
-<p align="center">
-  <img src="assets/screen-agent.png" width="80%" />
-</p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="assets/screen-welcome.png" width="100%" /><br/>
+      <sub><b>歡迎畫面</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="assets/screen-menu.png" width="100%" /><br/>
+      <sub><b>主選單</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="assets/screen-delivery.png" width="100%" /><br/>
+      <sub><b>建立出貨單</b></sub>
+    </td>
+    <td align="center">
+      <img src="assets/screen-export.png" width="100%" /><br/>
+      <sub><b>匯出庫存報表</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <img src="assets/screen-agent.png" width="70%" /><br/>
+      <sub><b>Agent Mode — AI 數據分析</b></sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
