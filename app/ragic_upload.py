@@ -52,6 +52,21 @@ questionary.confirm     = _q_styled(questionary.confirm)
 questionary.text        = _q_styled(questionary.text)
 questionary.password    = _q_styled(questionary.password)
 questionary.autocomplete = _q_styled(questionary.autocomplete)
+
+
+def _select_with_esc(message: str, choices: list):
+    """questionary.select wrapper：Esc 鍵視為取消，回傳 None 以觸發退出。"""
+    from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+    q = questionary.select(message, choices=choices)
+    try:
+        kb = KeyBindings()
+        @kb.add("escape")
+        def _(event):
+            event.app.exit(result=None)
+        q.application.key_bindings = merge_key_bindings([q.application.key_bindings, kb])
+    except Exception:
+        pass
+    return q.ask()
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -1303,7 +1318,7 @@ def main():
     # ── 主選單 ─────────────────────────────────────────────────
     while True:
         console.print(Rule(style="#C5A059"))
-        choice = questionary.select(
+        choice = _select_with_esc(
             "請選擇功能：",
             choices=[
                 "新建銷售單",
@@ -1314,7 +1329,7 @@ def main():
                 "Agent mode",
                 "退出 (Esc)",
             ],
-        ).ask()
+        )
 
         if not choice or choice == "退出 (Esc)":
             break
