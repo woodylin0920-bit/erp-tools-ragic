@@ -340,7 +340,7 @@ def run_agent_mode():
     console.print("    [dim]└ 「整理本月未出貨訂單並存至 Excel」[/dim]")
     console.print("    [dim]└ 「匯出庫存低於預警線的商品清單」[/dim]")
     console.print()
-    console.print("  [dim]輸入「退出」離開  ·  輸入「重設 key」更換 API Key[/dim]")
+    console.print("  [dim]輸入「退出」/ 'exit' 離開  ·  輸入「重設 key」/ 'reset key' 更換 API Key[/dim]")
     console.print(Rule(style="#3a3a3a"))
     console.print()
 
