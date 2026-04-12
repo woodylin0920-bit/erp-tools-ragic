@@ -3,6 +3,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/woodylin0920-bit)
+[![CI](https://github.com/woodylin0920-bit/erp-tools-ragic/actions/workflows/test.yml/badge.svg)](https://github.com/woodylin0920-bit/erp-tools-ragic/actions/workflows/test.yml)
 
 🌐 [繁體中文說明](README.zh-TW.md)
 
