@@ -26,6 +26,21 @@ A specialized Python toolkit designed to streamline **Ragic Cloud DB** API inter
 | Create Delivery Order | One-click conversion from sales orders to delivery orders |
 | Create Outbound Order | One-click conversion from delivery orders to outbound orders with automatic warehouse data fill-in |
 | Export Inventory Report | Pull live warehouse stock from Ragic, auto-convert to PCS, and fill into customer quote template (Excel) |
+| Agent mode | Natural language interface powered by Claude AI — query inventory, analyze sales trends, get restock recommendations, and export Excel reports |
+
+## 🤖 Agent mode
+
+A conversational AI assistant built into the app. Powered by Claude (Anthropic API).
+
+**What you can ask:**
+- `「幫我查 TW01 庫存」` — Query live Ragic inventory
+- `「1～3 月哪些客戶最穩定」` — Sales trend analysis
+- `「BBB042 應該補多少貨」` — Restock recommendations based on sales history
+- `「幫我把本月銷貨單存到桌面」` — Export data to Excel
+
+**Setup:** Requires an [Anthropic API key](https://console.anthropic.com). On first launch, the app will prompt you to enter it — stored locally, no config file editing needed.
+
+---
 
 ## 📋 Templates
 
