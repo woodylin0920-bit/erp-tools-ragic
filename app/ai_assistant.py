@@ -5,8 +5,14 @@ Agent mode — Claude AI 助理
 
 import json
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
+
+# 確保 app/ 在 Python 搜尋路徑內，無論從哪個目錄執行
+_APP_DIR = Path(__file__).resolve().parent
+if str(_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_APP_DIR))
 
 import anthropic
 import openpyxl
