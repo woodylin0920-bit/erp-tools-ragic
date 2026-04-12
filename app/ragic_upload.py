@@ -1207,10 +1207,16 @@ def _show_welcome():
     left.add_row(Text(welcome_line, style="bold #D4C9B0"))
     if personal_stats:
         today_year = date.today().year
-        left.add_row(Text(
-            f"你的業績（{today_year}）：NT$ {personal_stats['year']:,.0f}  ·  {personal_stats['count']} 筆訂單",
-            style="#B8860B"
-        ))
+        p_table = Table.grid(padding=(0, 1))
+        p_table.add_column(no_wrap=True)
+        p_table.add_column(style="bold #B8860B", no_wrap=True)
+        p_table.add_column(style="dim", no_wrap=True)
+        p_table.add_row(
+            Text(f"你的業績（{today_year}）", style="dim"),
+            f"NT$ {personal_stats['year']:,.0f}",
+            f"· {personal_stats['count']} 筆",
+        )
+        left.add_row(p_table)
     left.add_row("")
     left.add_row(Text("Boptoys", style="bold #C5A059"))
     left.add_row(Text("潮玩波普國際有限公司", style="#C5A059"))
