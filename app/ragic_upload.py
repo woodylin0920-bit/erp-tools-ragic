@@ -401,7 +401,7 @@ def ask_order_options(is_unregistered: bool = False) -> tuple:
     tax_rate = "5%" if "5%（" in tax_choice else "(5%)"
 
     shipping_str = questionary.text("運費（預設 0）", default="0").ask()
-    shipping_fee = float(shipping_str or "60")
+    shipping_fee = float(shipping_str or "0")
 
     commission = questionary.select(
         "業務分潤",
@@ -1074,8 +1074,8 @@ def _get_current_user() -> str:
     except Exception:
         pass
     try:
-        import os
-        return os.getlogin()
+        import getpass
+        return getpass.getuser()
     except Exception:
         return ""
 
