@@ -1080,34 +1080,61 @@ def _get_current_user() -> str:
         return ""
 
 
-def _get_last_month_revenue() -> str:
-    """從 Ragic 查上個月銷貨單總計，失敗回傳空字串。"""
+def _calc_revenue(data: dict, date_from: str, date_to: str) -> float:
+    """加總指定日期範圍內銷貨單總計。"""
+    total = 0.0
+    for rec in data.values():
+        order_date = rec.get("訂單日期", rec.get("日期", ""))
+        if not order_date:
+            continue
+        d = order_date[:10].replace("-", "/")
+        if date_from <= d <= date_to:
+            val = rec.get("總計", rec.get("訂單總計", "0")) or "0"
+            try:
+                total += float(str(val).replace(",", ""))
+            except ValueError:
+                pass
+    return total
+
+
+def _get_revenue_summary() -> list:
+    """回傳 [(label, amount_str), ...] 上月、本季、本年，失敗回傳空列表。"""
     try:
+        import datetime as dt
         today = date.today()
+
+        # 上個月
         first_this_month = today.replace(day=1)
-        last_month_end = first_this_month - __import__("datetime").timedelta(days=1)
-        last_month_start = last_month_end.replace(day=1)
-        date_from = last_month_start.strftime("%Y/%m/%d")
-        date_to   = last_month_end.strftime("%Y/%m/%d")
-        month_label = last_month_start.strftime("%Y/%m")
+        lm_end = first_this_month - dt.timedelta(days=1)
+        lm_start = lm_end.replace(day=1)
+
+        # 本季
+        q = (today.month - 1) // 3
+        q_start = date(today.year, q * 3 + 1, 1)
+        q_end = today
+
+        # 本年
+        y_start = date(today.year, 1, 1)
+        y_end = today
 
         data = ragic_get(SALES_ORDER_SHEET, limit=2000)
-        total = 0.0
-        for rec in data.values():
-            order_date = rec.get("訂單日期", rec.get("日期", ""))
-            if not order_date:
-                continue
-            if date_from <= order_date[:10].replace("-", "/") <= date_to:
-                val = rec.get("總計", rec.get("訂單總計", "0")) or "0"
-                try:
-                    total += float(str(val).replace(",", ""))
-                except ValueError:
-                    pass
-        if total == 0:
-            return ""
-        return f"{month_label} 營業額  NT$ {total:,.0f}"
+
+        results = []
+        lm_total = _calc_revenue(data, lm_start.strftime("%Y/%m/%d"), lm_end.strftime("%Y/%m/%d"))
+        if lm_total:
+            results.append((f"上月 ({lm_start.strftime('%Y/%m')})", f"NT$ {lm_total:,.0f}"))
+
+        q_total = _calc_revenue(data, q_start.strftime("%Y/%m/%d"), q_end.strftime("%Y/%m/%d"))
+        if q_total:
+            results.append((f"本季 (Q{q + 1})", f"NT$ {q_total:,.0f}"))
+
+        y_total = _calc_revenue(data, y_start.strftime("%Y/%m/%d"), y_end.strftime("%Y/%m/%d"))
+        if y_total:
+            results.append((f"本年 ({today.year})", f"NT$ {y_total:,.0f}"))
+
+        return results
     except Exception:
-        return ""
+        return []
 
 
 def _get_recent_activity() -> list:
@@ -1130,7 +1157,7 @@ def _show_welcome():
     username = _get_current_user()
     welcome_line = f"歡迎回來，{username}！" if username else "歡迎回來！"
 
-    revenue = _get_last_month_revenue()
+    revenue_rows = _get_revenue_summary()
 
     # 左欄
     left = Table.grid(padding=(0, 2))
@@ -1140,9 +1167,14 @@ def _show_welcome():
     left.add_row(Text("Boptoys", style="bold #C5A059"))
     left.add_row(Text("潮玩波普國際有限公司", style="#C5A059"))
     left.add_row(Text("統一編號 82906411", style="dim"))
-    if revenue:
+    if revenue_rows:
         left.add_row("")
-        left.add_row(Text(revenue, style="bold #FF7700"))
+        rev_table = Table.grid(padding=(0, 2))
+        rev_table.add_column(style="dim", no_wrap=True)
+        rev_table.add_column(style="bold #FF7700", no_wrap=True)
+        for label, amount in revenue_rows:
+            rev_table.add_row(label, amount)
+        left.add_row(rev_table)
 
     # 右欄：最近操作
     activity = _get_recent_activity()
