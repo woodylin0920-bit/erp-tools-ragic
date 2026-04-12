@@ -1264,7 +1264,7 @@ def _show_welcome():
         p_table.add_row(
             Text(f"我的業績（{today_year}）", style="#B0A898"),
             f"NT$ {personal_stats['year']:,.0f}",
-            f"  共 {personal_stats['count']} 筆訂單",
+            f"  · {personal_stats['count']} 筆",
         )
         left.add_row(p_table)
     left.add_row("")
