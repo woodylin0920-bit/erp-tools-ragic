@@ -1080,6 +1080,36 @@ def _get_current_user() -> str:
         return ""
 
 
+def _get_last_month_revenue() -> str:
+    """從 Ragic 查上個月銷貨單總計，失敗回傳空字串。"""
+    try:
+        today = date.today()
+        first_this_month = today.replace(day=1)
+        last_month_end = first_this_month - __import__("datetime").timedelta(days=1)
+        last_month_start = last_month_end.replace(day=1)
+        date_from = last_month_start.strftime("%Y/%m/%d")
+        date_to   = last_month_end.strftime("%Y/%m/%d")
+        month_label = last_month_start.strftime("%Y/%m")
+
+        data = ragic_get(SALES_ORDER_SHEET, limit=2000)
+        total = 0.0
+        for rec in data.values():
+            order_date = rec.get("訂單日期", rec.get("日期", ""))
+            if not order_date:
+                continue
+            if date_from <= order_date[:10].replace("-", "/") <= date_to:
+                val = rec.get("總計", rec.get("訂單總計", "0")) or "0"
+                try:
+                    total += float(str(val).replace(",", ""))
+                except ValueError:
+                    pass
+        if total == 0:
+            return ""
+        return f"{month_label} 營業額  NT$ {total:,.0f}"
+    except Exception:
+        return ""
+
+
 def _get_recent_activity() -> list:
     """從 upload_log.json 讀取最近操作，回傳 [(日期, 描述), ...] 最多 5 筆。"""
     from collections import defaultdict
@@ -1100,6 +1130,8 @@ def _show_welcome():
     username = _get_current_user()
     welcome_line = f"歡迎回來，{username}！" if username else "歡迎回來！"
 
+    revenue = _get_last_month_revenue()
+
     # 左欄
     left = Table.grid(padding=(0, 2))
     left.add_column()
@@ -1108,6 +1140,9 @@ def _show_welcome():
     left.add_row(Text("Boptoys", style="bold #C5A059"))
     left.add_row(Text("潮玩波普國際有限公司", style="#C5A059"))
     left.add_row(Text("統一編號 82906411", style="dim"))
+    if revenue:
+        left.add_row("")
+        left.add_row(Text(revenue, style="bold #FF7700"))
 
     # 右欄：最近操作
     activity = _get_recent_activity()
