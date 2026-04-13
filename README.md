@@ -34,6 +34,8 @@ A specialized Python toolkit designed to streamline **Ragic Cloud DB** API inter
 
 A conversational AI assistant built into the app. Powered by Claude (Anthropic API).
 
+No SQL. No coding. Just ask in plain language and get answers instantly.
+
 **▸ Real-time Query**
 ```
 "How much BBB042 is left in TW01?"

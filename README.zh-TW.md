@@ -106,7 +106,7 @@
 
 ## 🤖 Agent mode
 
-以自然語言操作 ERP 資料，由 Claude AI 驅動。
+不需要學 SQL 或寫程式，用自然語言問就能拿到答案。由 Claude AI 驅動。
 
 **▸ 即時查詢 (Real-time Query)**
 ```
