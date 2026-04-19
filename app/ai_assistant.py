@@ -297,24 +297,50 @@ _ANTHROPIC_KEY_FILE = Path.home() / ".boptoys-anthropic_key"
 
 
 def _get_anthropic_api_key() -> str:
-    """取得 Anthropic API key：env → key 檔 → 提示輸入。"""
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    """取得 Anthropic API key：環境變數 → key 檔 → 提示輸入。
+
+    優先級：
+    1. 環境變數 ANTHROPIC_API_KEY（最優先，來自 .claude/settings.json 或系統環境）
+    2. 本地檔案 ~/.boptoys-anthropic_key（向後相容）
+    3. 使用者輸入
+    """
+    console.print("[dim]🔍 DEBUG: 開始查詢 API Key...[/dim]")
+
+    # 優先檢查環境變數
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    console.print(f"[dim]  └─ 環境變數 ANTHROPIC_API_KEY: {'有設定' if api_key else '未設定'}[/dim]")
     if api_key:
+        console.print("[dim]✓ 使用環境變數中的 API Key[/dim]")
+        console.print(f"[dim]  (前 20 字): {api_key[:20]}...[/dim]")
         return api_key
-    if _ANTHROPIC_KEY_FILE.exists():
-        api_key = _ANTHROPIC_KEY_FILE.read_text(encoding="utf-8").strip()
+
+    # 次優先檢查本地檔案
+    key_file_path = Path.home() / ".boptoys-anthropic_key"
+    file_exists = key_file_path.exists()
+    console.print(f"[dim]  └─ 本地檔案 {key_file_path}: {'存在' if file_exists else '不存在'}[/dim]")
+
+    if file_exists:
+        api_key = key_file_path.read_text(encoding="utf-8").strip()
         if api_key:
+            console.print(f"[dim]✓ 使用本地儲存的 API Key[/dim]")
+            console.print(f"[dim]  (前 20 字): {api_key[:20]}...[/dim]")
             os.environ["ANTHROPIC_API_KEY"] = api_key
             return api_key
+
+    # 都沒有，提示使用者輸入
     console.print("[#B0A898]尚未設定 Anthropic API Key[/#B0A898]")
-    console.print("[dim]請至 console.anthropic.com → API Keys 取得[/dim]")
+    console.print("[dim]優先建議：設定環境變數 ANTHROPIC_API_KEY 或 .claude/settings.json[/dim]")
+    console.print("[dim]或將 API Key 存至：~/.boptoys-anthropic_key[/dim]")
+    console.print("[dim]更多資訊：https://console.anthropic.com → API Keys[/dim]")
     api_key = questionary.password("請輸入 Anthropic API Key：").ask() or ""
     if not api_key:
         console.print("[red]未輸入 API Key，返回主選單[/red]")
         return ""
-    _ANTHROPIC_KEY_FILE.write_text(api_key, encoding="utf-8")
+
+    # 儲存到本地檔案供下次使用
+    key_file_path.write_text(api_key, encoding="utf-8")
     os.environ["ANTHROPIC_API_KEY"] = api_key
-    console.print(f"[#5A9A4A]✓ API Key 已儲存，下次不需再輸入[/#5A9A4A]")
+    console.print(f"[#5A9A4A]✓ API Key 已儲存至 {key_file_path}[/#5A9A4A]")
     return api_key
 
 

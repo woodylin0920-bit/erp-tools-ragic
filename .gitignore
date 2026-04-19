@@ -1,5 +1,6 @@
 # 敏感設定（絕對不能上傳）
 .env
+.claude/settings*.json
 
 # 虛擬環境
 venv/
