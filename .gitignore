@@ -25,6 +25,9 @@ logs/
 # 匯出檔案（本機自行清理）
 exports/*.xlsx
 
+# 範本備份檔（本機自行保留）
+*.xlsx.bak
+
 # macOS
 .DS_Store
 **/.DS_Store
