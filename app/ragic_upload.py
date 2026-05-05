@@ -1096,11 +1096,32 @@ def run_export_inventory(args, price_index: dict):
             row[inv_col_idx].value = inventory_pcs[barcode]
             filled += 1
 
+    # ── 強制 Excel 開檔重算公式（避免快取值顯示為 0）──
+    from openpyxl.workbook.properties import CalcProperties
+    wb.calculation = CalcProperties(fullCalcOnLoad=True)
+
     # ── 儲存輸出 ─────────────────────────────────────────────
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     tpl_prefix = tpl_path.stem.replace("-template", "")
     out_path = BASE_OUTPUT / f"{tpl_prefix}_{warehouse_code}_{ts}.xlsx"
     wb.save(out_path)
+
+    # ── 保留範本的嵌入圖片（openpyxl 3.x 不支援 oneCellAnchor，存檔會掉圖）──
+    # 從範本 zip 注入 media/drawings/charts/embeddings 與相關 rels & content types，
+    # 只用 openpyxl 輸出檔取代邏輯內容（sheet/sharedStrings/styles/workbook）。
+    import zipfile
+    with zipfile.ZipFile(tpl_path) as ztpl:
+        merged = {n: ztpl.read(n) for n in ztpl.namelist()}
+    with zipfile.ZipFile(out_path) as zout:
+        oxl = {n: zout.read(n) for n in zout.namelist()}
+    for f in ('xl/worksheets/sheet1.xml', 'xl/sharedStrings.xml',
+              'xl/styles.xml', 'xl/workbook.xml'):
+        if f in oxl:
+            merged[f] = oxl[f]
+    merged.pop('xl/calcChain.xml', None)  # Excel 會自動重建
+    with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zfinal:
+        for name, data in merged.items():
+            zfinal.writestr(name, data)
 
     console.print(f"[bold #5A9A4A]✓ 完成！填入 {filled} 筆，輸出至：{out_path}[/bold #5A9A4A]")
     logging.info("庫存報表匯出成功 warehouse=%s filled=%d path=%s", warehouse_code, filled, out_path)
