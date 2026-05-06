@@ -1381,6 +1381,7 @@ def main():
                 "建立出貨單（銷貨單拋轉）",
                 "建立出庫單（出貨單拋轉）",
                 "匯出庫存報表（Excel）",
+                "在途查詢（採購單未到貨）",
                 "新竹物流建單（開發中）",
                 "Agent mode（AI 數據分析）",
                 "退出 (Esc)",
@@ -1429,6 +1430,17 @@ def main():
                 except ValueError as e:
                     console.print(f"[red]✗ {e}[/red]")
                 _pause()
+        elif choice == "在途查詢（採購單未到貨）":
+            kw = questionary.text(
+                "輸入商品編號或名稱關鍵字（留空=列出全部）：",
+                default="",
+            ).ask()
+            try:
+                from app.in_transit_query import query as query_in_transit
+            except ImportError:
+                from in_transit_query import query as query_in_transit
+            query_in_transit((kw or "").strip() or None)
+            _pause()
         elif choice == "新竹物流建單（開發中）":
             console.print("[#FF7700]功能開發中，敬請期待[/#FF7700]")
         elif choice == "Agent mode（AI 數據分析）":
