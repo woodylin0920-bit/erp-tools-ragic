@@ -53,6 +53,17 @@ def _parse_date(s: str) -> date:
     return date.min
 
 
+def _norm_key(code: str, spec: str, unit: str) -> tuple:
+    """正規化 (商品編號, 規格, 單位) — 容忍 '24' vs '24.0' 與兩端空白差異。"""
+    spec = spec.strip()
+    if spec:
+        try:
+            spec = str(int(float(spec)))
+        except ValueError:
+            pass
+    return (code.strip().upper(), spec, unit.strip())
+
+
 def build_cost_map(prices: dict, asof: date) -> dict:
     """以 (商品編號, 規格, 單位) → 成本 建立索引；若同 key 多筆，取最近且 ≤ asof 的生效日。"""
     buckets: dict[tuple, list] = defaultdict(list)
@@ -64,7 +75,7 @@ def build_cost_map(prices: dict, asof: date) -> dict:
             continue
         eff = _parse_date(r.get("生效日", ""))
         cost = _to_int(r.get("成本", 0))
-        buckets[(code, spec, unit)].append((eff, cost))
+        buckets[_norm_key(code, spec, unit)].append((eff, cost))
     cost_map: dict[tuple, int] = {}
     for key, entries in buckets.items():
         valid = [e for e in entries if e[0] <= asof]
@@ -121,7 +132,7 @@ def export(month_label: str | None = None) -> Path:
         spec = str(r.get("規格", "")).strip()
         unit = str(r.get("單位", "")).strip()
         qty = _to_int(r.get("數量", 0))
-        cost = cost_map.get((code, spec, unit))
+        cost = cost_map.get(_norm_key(code, spec, unit))
         if cost is None:
             missing.append((wh_code, code, spec, unit))
             cost = 0
