@@ -105,7 +105,7 @@ def query(keyword: str | None = None) -> None:
             f"[dim]{len(po['items'])} 項 / {po_qty:,} 件 / 合計 {po_amount:,}[/dim]"
         )
 
-        table = Table(show_header=True, header_style="bold #C5A059", box=None, padding=(0, 1))
+        table = Table(show_header=True, header_style="bold #C5A059")
         table.add_column("商品編號", style="cyan")
         table.add_column("商品名稱")
         table.add_column("規格", justify="right")
@@ -113,10 +113,12 @@ def query(keyword: str | None = None) -> None:
         table.add_column("在途量", justify="right", style="bold")
         table.add_column("單價", justify="right")
         table.add_column("在途金額", justify="right", style="bold #C5A059")
+        table.add_column("備註", style="dim")
         for it in po["items"]:
+            note = "樣品" if it["price"] == 0 else ""
             table.add_row(
                 it["prod"], it["name"][:32], str(it["spec"]), it["unit"],
-                f"{it['qty']:,}", f"{it['price']:,}", f"{it['amount']:,}",
+                f"{it['qty']:,}", f"{it['price']:,}", f"{it['amount']:,}", note,
             )
         console.print(table)
 
