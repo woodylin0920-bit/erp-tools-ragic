@@ -15,12 +15,21 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from app.ragic_upload import (
-    INVENTORY_SHEET,
-    PRODUCT_PRICE_SHEET,
-    console,
-    ragic_get,
-)
+try:
+    from app.ragic_upload import (
+        INVENTORY_SHEET,
+        PRODUCT_PRICE_SHEET,
+        console,
+        ragic_get,
+    )
+except ImportError:
+    # 從 start.bat / start.command 啟動時 sys.path 已含 app/，直接相對 import
+    from ragic_upload import (
+        INVENTORY_SHEET,
+        PRODUCT_PRICE_SHEET,
+        console,
+        ragic_get,
+    )
 
 BASE_OUTPUT = Path(__file__).resolve().parent.parent / "exports"
 HEADERS = ["倉庫代碼", "倉庫名稱", "種類", "商品名稱", "規格", "單位", "數量", "單位成本", "庫存現金"]

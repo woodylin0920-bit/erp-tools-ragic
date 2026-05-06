@@ -1420,7 +1420,10 @@ def main():
                     "請輸入報表月份（YYYY-MM，留空=本月）：",
                     default="",
                 ).ask()
-                from app.export_inventory_value import export as export_inventory_value
+                try:
+                    from app.export_inventory_value import export as export_inventory_value
+                except ImportError:
+                    from export_inventory_value import export as export_inventory_value
                 export_inventory_value((month or "").strip() or None)
                 _pause()
         elif choice == "新竹物流建單（開發中）":
