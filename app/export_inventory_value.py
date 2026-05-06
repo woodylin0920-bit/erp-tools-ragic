@@ -68,7 +68,10 @@ def build_cost_map(prices: dict, asof: date) -> dict:
     cost_map: dict[tuple, int] = {}
     for key, entries in buckets.items():
         valid = [e for e in entries if e[0] <= asof]
-        chosen = max(valid or entries, key=lambda x: x[0])
+        if not valid:
+            # 報表月份時點還沒有生效成本，視為缺成本（不可用未來價格回填歷史）
+            continue
+        chosen = max(valid, key=lambda x: x[0])
         cost_map[key] = chosen[1]
     return cost_map
 
@@ -146,7 +149,7 @@ def export(month_label: str | None = None) -> Path:
 
     sorted_codes = sorted(by_wh.keys(), key=lambda c: (0 if c == "TW01" else 1, c))
     for wh_code in sorted_codes:
-        rows = sorted(by_wh[wh_code], key=lambda x: (x["種類"], x["商品名稱"], x["規格"] or 0))
+        rows = sorted(by_wh[wh_code], key=lambda x: (x["種類"], x["商品名稱"], str(x["規格"])))
         ws = wb.create_sheet(title=f"{wh_code}_{wh_names[wh_code]}"[:31])
 
         ws.cell(row=1, column=1, value=f"{title_month} 期末庫存表 — {wh_code} {wh_names[wh_code]}").font = Font(bold=True, size=14)
