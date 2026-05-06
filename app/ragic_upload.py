@@ -1381,7 +1381,6 @@ def main():
                 "建立出貨單（銷貨單拋轉）",
                 "建立出庫單（出貨單拋轉）",
                 "匯出庫存報表（Excel）",
-                "月度庫存金額統計（給會計）",
                 "新竹物流建單（開發中）",
                 "Agent mode（AI 數據分析）",
                 "退出 (Esc)",
@@ -1400,18 +1399,30 @@ def main():
         elif choice == "建立出庫單（出貨單拋轉）":
             run_create_outbound_order(args)
         elif choice == "匯出庫存報表（Excel）":
-            if price_index is None:
-                price_index = load_price_index()
-                customers   = load_customers()
-            run_export_inventory(args, price_index)
-        elif choice == "月度庫存金額統計（給會計）":
-            month = questionary.text(
-                "請輸入報表月份（YYYY-MM，留空=本月）：",
-                default="",
-            ).ask()
-            from app.export_inventory_value import export as export_inventory_value
-            export_inventory_value(month.strip() or None)
-            _pause()
+            BACK = "← 返回"
+            sub = _select_with_esc(
+                "請選擇報表類型：",
+                choices=[
+                    "客戶現貨報表（依模板填入單一倉現貨）",
+                    "月度庫存金額統計（給會計，全倉分頁）",
+                    BACK,
+                ],
+            )
+            if not sub or sub == BACK:
+                continue
+            if sub.startswith("客戶現貨報表"):
+                if price_index is None:
+                    price_index = load_price_index()
+                    customers   = load_customers()
+                run_export_inventory(args, price_index)
+            else:
+                month = questionary.text(
+                    "請輸入報表月份（YYYY-MM，留空=本月）：",
+                    default="",
+                ).ask()
+                from app.export_inventory_value import export as export_inventory_value
+                export_inventory_value((month or "").strip() or None)
+                _pause()
         elif choice == "新竹物流建單（開發中）":
             console.print("[#FF7700]功能開發中，敬請期待[/#FF7700]")
         elif choice == "Agent mode（AI 數據分析）":
