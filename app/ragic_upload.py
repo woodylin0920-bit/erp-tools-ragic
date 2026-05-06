@@ -1424,7 +1424,10 @@ def main():
                     from app.export_inventory_value import export as export_inventory_value
                 except ImportError:
                     from export_inventory_value import export as export_inventory_value
-                export_inventory_value((month or "").strip() or None)
+                try:
+                    export_inventory_value((month or "").strip() or None)
+                except ValueError as e:
+                    console.print(f"[red]✗ {e}[/red]")
                 _pause()
         elif choice == "新竹物流建單（開發中）":
             console.print("[#FF7700]功能開發中，敬請期待[/#FF7700]")

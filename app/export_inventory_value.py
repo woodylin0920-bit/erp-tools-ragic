@@ -86,16 +86,17 @@ def export(month_label: str | None = None) -> Path:
         title_month = last_month_end.strftime("%Y-%m")
         asof = last_month_end
     else:
-        title_month = month_label
+        # 接受 YYYY-MM 或 YYYY/MM；其他格式直接拒絕，避免 / 等字元寫入檔名
+        normalized = month_label.strip().replace("/", "-")
         try:
-            asof = datetime.strptime(month_label + "-01", "%Y-%m-%d").date()
-            # 月底
-            if asof.month == 12:
-                asof = date(asof.year, 12, 31)
-            else:
-                asof = date(asof.year, asof.month + 1, 1) - timedelta(days=1)
+            parsed = datetime.strptime(normalized + "-01", "%Y-%m-%d").date()
         except ValueError:
-            asof = today
+            raise ValueError(f"月份格式錯誤：{month_label!r}，請使用 YYYY-MM（例如 2026-04）")
+        title_month = parsed.strftime("%Y-%m")
+        if parsed.month == 12:
+            asof = date(parsed.year, 12, 31)
+        else:
+            asof = date(parsed.year, parsed.month + 1, 1) - timedelta(days=1)
 
     console.print(f"[#B0A898]載入商品單價（成本）...[/#B0A898]")
     prices = ragic_get(PRODUCT_PRICE_SHEET)
