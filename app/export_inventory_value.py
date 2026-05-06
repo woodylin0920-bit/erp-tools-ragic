@@ -126,7 +126,7 @@ def export(month_label: str | None = None) -> Path:
             "倉庫名稱": wh_name,
             "種類": str(r.get("種類", "")).strip(),
             "商品名稱": str(r.get("商品名稱", "")).strip(),
-            "規格": _to_int(spec) if spec else "",
+            "規格": int(float(spec)) if spec.replace(".", "", 1).isdigit() else spec,
             "單位": unit,
             "數量": qty,
             "單位成本": cost,

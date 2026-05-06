@@ -1417,7 +1417,7 @@ def main():
                 run_export_inventory(args, price_index)
             else:
                 month = questionary.text(
-                    "請輸入報表月份（YYYY-MM，留空=本月）：",
+                    "請輸入報表月份（YYYY-MM，留空=上個月）：",
                     default="",
                 ).ask()
                 try:
