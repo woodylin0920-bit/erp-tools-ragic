@@ -1381,6 +1381,7 @@ def main():
                 "建立出貨單（銷貨單拋轉）",
                 "建立出庫單（出貨單拋轉）",
                 "匯出庫存報表（Excel）",
+                "月度庫存金額統計（給會計）",
                 "新竹物流建單（開發中）",
                 "Agent mode（AI 數據分析）",
                 "退出 (Esc)",
@@ -1403,6 +1404,14 @@ def main():
                 price_index = load_price_index()
                 customers   = load_customers()
             run_export_inventory(args, price_index)
+        elif choice == "月度庫存金額統計（給會計）":
+            month = questionary.text(
+                "請輸入報表月份（YYYY-MM，留空=本月）：",
+                default="",
+            ).ask()
+            from app.export_inventory_value import export as export_inventory_value
+            export_inventory_value(month.strip() or None)
+            _pause()
         elif choice == "新竹物流建單（開發中）":
             console.print("[#FF7700]功能開發中，敬請期待[/#FF7700]")
         elif choice == "Agent mode（AI 數據分析）":
