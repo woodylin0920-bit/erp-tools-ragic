@@ -65,8 +65,15 @@ def build_cost_map(prices: dict, asof: date) -> dict:
 
 
 def export(month_label: str | None = None) -> Path:
+    from datetime import timedelta
     today = date.today()
-    if month_label:
+    # 預設改為「上個月」：月度盤點通常是結算上一個已結束的月份
+    if not month_label:
+        first_of_this_month = today.replace(day=1)
+        last_month_end = first_of_this_month - timedelta(days=1)
+        title_month = last_month_end.strftime("%Y-%m")
+        asof = last_month_end
+    else:
         title_month = month_label
         try:
             asof = datetime.strptime(month_label + "-01", "%Y-%m-%d").date()
@@ -74,14 +81,9 @@ def export(month_label: str | None = None) -> Path:
             if asof.month == 12:
                 asof = date(asof.year, 12, 31)
             else:
-                asof = date(asof.year, asof.month + 1, 1).replace(day=1)
-                from datetime import timedelta
-                asof = asof - timedelta(days=1)
+                asof = date(asof.year, asof.month + 1, 1) - timedelta(days=1)
         except ValueError:
             asof = today
-    else:
-        title_month = today.strftime("%Y-%m")
-        asof = today
 
     console.print(f"[#B0A898]載入商品單價（成本）...[/#B0A898]")
     prices = ragic_get(PRODUCT_PRICE_SHEET)
