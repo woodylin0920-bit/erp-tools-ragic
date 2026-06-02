@@ -166,14 +166,15 @@ _KEY_FILE = Path.home() / ".boptoys-ai_key"
 
 # ── Ragic API ────────────────────────────────────────────────
 
-def _auth_header() -> dict:
-    """Ragic API key 已是 Base64 格式，直接作為 Basic auth token。"""
-    api_key = os.environ.get("RAGIC_API_KEY", "")
-    if not api_key and _KEY_FILE.exists():
+def _get_api_key(force_prompt: bool = False) -> str:
+    """取得 Ragic API Key；force_prompt=True 時忽略既有金鑰，直接要求重新輸入。"""
+    api_key = "" if force_prompt else os.environ.get("RAGIC_API_KEY", "")
+    if not api_key and not force_prompt and _KEY_FILE.exists():
         api_key = _KEY_FILE.read_text().strip()
         os.environ["RAGIC_API_KEY"] = api_key
     if not api_key:
-        console.print("[#FF7700]尚未設定 RAGIC_API_KEY[/#FF7700]")
+        if not force_prompt:
+            console.print("[#FF7700]尚未設定 RAGIC_API_KEY[/#FF7700]")
         api_key = questionary.password("請輸入 Ragic API Key：").ask() or ""
         if not api_key:
             console.print("[red]未輸入 API Key，結束[/red]")
@@ -181,7 +182,30 @@ def _auth_header() -> dict:
         _KEY_FILE.write_text(api_key, encoding="utf-8")
         os.environ["RAGIC_API_KEY"] = api_key
         console.print(f"[#5A9A4A]✓ API Key 已儲存至 {_KEY_FILE}，下次不需再輸入[/#5A9A4A]")
-    return {"Authorization": f"Basic {api_key}"}
+    return api_key
+
+
+def _invalidate_api_key() -> None:
+    """清除目前（失效的）API Key，下次會要求重新輸入。"""
+    os.environ.pop("RAGIC_API_KEY", None)
+    try:
+        _KEY_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _auth_header() -> dict:
+    """Ragic API key 已是 Base64 格式，直接作為 Basic auth token。"""
+    return {"Authorization": f"Basic {_get_api_key()}"}
+
+
+def _is_auth_error(data) -> bool:
+    """判斷 Ragic 回應是否為「金鑰失效／無存取權」錯誤（HTTP 200 但 body 是 ERROR）。"""
+    return (
+        isinstance(data, dict)
+        and data.get("status") == "ERROR"
+        and (data.get("code") == 106 or "guest account" in str(data.get("msg", "")))
+    )
 
 
 def _ragic_request(method: str, url: str, **kwargs) -> requests.Response:
@@ -209,30 +233,45 @@ def _ragic_request(method: str, url: str, **kwargs) -> requests.Response:
     raise last_exc
 
 
+def _ragic_json(method: str, url: str, *, timeout: int = 30, **kwargs) -> dict:
+    """送出 Ragic API 請求並回傳 JSON；偵測到金鑰失效時清除舊金鑰、要求重填後重試一次。"""
+    for attempt in range(2):
+        r = _ragic_request(method, url, headers=_auth_header(), timeout=timeout, **kwargs)
+        data = r.json()
+        if _is_auth_error(data):
+            if attempt == 0:
+                console.print(
+                    f"[#FF7700]⚠ Ragic API Key 失效或無此表存取權（{data.get('msg', '')}）[/#FF7700]"
+                )
+                _invalidate_api_key()
+                _get_api_key(force_prompt=True)
+                continue
+            raise RuntimeError(f"Ragic API 存取失敗：{data.get('msg', data)}")
+        return data
+    raise RuntimeError("Ragic API 存取失敗")
+
+
 def ragic_get(sheet_path: str, limit: int = 2000) -> dict:
     url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}?api&limit={limit}"
-    r = _ragic_request("GET", url, headers=_auth_header(), timeout=30)
-    data = r.json()
+    data = _ragic_json("GET", url)
     return {k: v for k, v in data.items() if not k.startswith("_") and k != "info"}
 
 
 def ragic_post(sheet_path: str, payload: dict) -> dict:
     url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}?api&doLinkLoad=true"
-    r = _ragic_request("POST", url, headers=_auth_header(), json=payload, timeout=30)
-    return r.json()
+    return _ragic_json("POST", url, json=payload)
 
 
 def ragic_patch(sheet_path: str, record_id: str, payload: dict) -> dict:
     url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/{record_id}?api&doLinkLoad=true"
-    r = _ragic_request("PATCH", url, headers=_auth_header(), json=payload, timeout=30)
-    return r.json()
+    return _ragic_json("PATCH", url, json=payload)
 
 
 def ragic_get_action_button_id(sheet_path: str, button_name: str) -> Optional[int]:
     """從 Ragic metadata 取得指定名稱的 action button ID（massOperation 類別）。"""
     url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/metadata/actionButton?api&category=massOperation"
-    r = _ragic_request("GET", url, headers=_auth_header(), timeout=30)
-    for btn in r.json().get("actionButtons", []):
+    data = _ragic_json("GET", url)
+    for btn in data.get("actionButtons", []):
         if btn.get("name") == button_name:
             return btn["id"]
     return None
@@ -241,8 +280,7 @@ def ragic_get_action_button_id(sheet_path: str, button_name: str) -> Optional[in
 def ragic_trigger_button(sheet_path: str, record_id: str, button_id) -> dict:
     """對單筆記錄觸發 Ragic action button。"""
     url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{sheet_path}/{record_id}?api&bId={button_id}"
-    r = _ragic_request("POST", url, headers=_auth_header(), timeout=60)
-    return r.json()
+    return _ragic_json("POST", url, timeout=60)
 
 
 def _friendly_error(msg: str) -> str:
