@@ -429,8 +429,21 @@ def create_customer_interactive(store_code: str, client_code: str, customers: li
                                 dry_run: bool = False) -> Optional[dict]:
     """互動式新建客戶並寫入 Ragic 客戶表(20004)。成功則加入 customers 快取並回傳。
     客戶編號由 Ragic 自動產生（不填）。取消/失敗回 None。"""
-    suggested = f"{client_code}-{store_code}" if client_code else str(store_code)
-    name = (questionary.text("客戶名稱（必填）", default=suggested).ask() or "").strip()
+    # 客戶命名沒有單一規則（公司全名／個人名／通路前綴皆有）。
+    # 從現有同通路客戶學前綴並顯示範例，讓使用者照既有慣例命名，而非硬套 client_code。
+    def _channel_key(nm: str) -> str:
+        return re.sub(r'[^A-Za-z]', '', str(nm).split("-")[0]).upper()
+    code_key = re.sub(r'[^A-Za-z]', '', client_code or "").upper()
+    channel_names = [c["name"] for c in customers
+                     if code_key and _channel_key(c["name"]).startswith(code_key)]
+    prefix = ""
+    if channel_names and "-" in channel_names[0]:
+        prefix = channel_names[0][:channel_names[0].index("-") + 1]   # 例：TRU- / L.E.-
+    suggested = f"{prefix}{store_code}" if prefix else (
+        f"{client_code}-{store_code}" if client_code else str(store_code))
+    if channel_names:
+        console.print(f"[dim]同通路現有命名參考：{'、'.join(channel_names[:5])}[/dim]")
+    name = (questionary.text("客戶名稱（必填，可改）", default=suggested).ask() or "").strip()
     if not name:
         console.print("[#FF7700]未輸入客戶名稱，取消建立[/#FF7700]")
         return None
