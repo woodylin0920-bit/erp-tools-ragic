@@ -221,11 +221,12 @@ def scan_cancellations(platform_obj, limit=None):
             if order_no in seen:
                 continue
             seen.add(order_no)
-            # 在 Ragic 找：備註含訂單號（系統開的）或含買家（蝦皮歷史）
+            # 只用「訂單號」精準比對（備註含訂單號）。
+            # 蝦皮歷史單只有買家、無訂單號 → 無法判定是哪張，不亂標（避免假陽性：
+            # 同買家的其他有效單會被誤判為待作廢）。系統開的單備註含訂單號才比對得到。
             hit = next((r for r in existing
                         if r["customer"] == platform_obj.customer
-                        and ((order_no and order_no in r["note"])
-                             or (buyer and buyer in r["note"]))), None)
+                        and order_no and order_no in r["note"]), None)
             (to_void if hit else not_created).append((order_no, buyer, hit))
     finally:
         M.logout()
