@@ -1547,6 +1547,60 @@ def _show_welcome():
     console.print(Rule(style="#C5A059"))
 
 
+# ── 電商訂單對帳 ─────────────────────────────────────────────
+
+def run_ecom_reconcile(args):
+    """電商訂單對帳（唯讀）：讀蝦皮/官網訂單信 vs Ragic → 列漏開 + 取消待作廢。
+    目前僅對帳顯示，自動開單尚未開放。"""
+    try:
+        from ecom import core
+        from ecom.platforms import PLATFORMS
+    except ImportError:
+        from app.ecom import core
+        from app.ecom.platforms import PLATFORMS
+
+    BACK = "← 返回"
+    label = {"shopstore": "ShopStore（官網）", "shopee": "蝦皮"}
+    name = _select_with_esc("選擇電商平台：",
+                            choices=[label.get(n, n) for n in PLATFORMS] + [BACK])
+    if not name or name == BACK:
+        return
+    plat = PLATFORMS[next(n for n in PLATFORMS if label.get(n, n) == name)]
+
+    console.print(f"\n[#B0A898]讀取 {name} 訂單信並與 Ragic 對帳中...[/#B0A898]")
+    try:
+        done, missing = core.reconcile(plat)
+    except Exception as e:
+        console.print(f"[red]✗ 對帳失敗：{e}[/red]")
+        _pause()
+        return
+
+    console.print(f"\n[bold]{name} 對帳結果[/bold]　Email 訂單 {len(done) + len(missing)} ｜ "
+                  f"[#5A9A4A]Ragic 已開 {len(done)}[/#5A9A4A] ｜ [#FF7700]漏開 {len(missing)}[/#FF7700]")
+
+    for o in missing:
+        flag = "  [#D14040]🔴待取貨[/#D14040]" if o.is_cod_pending else ""
+        console.print(f"\n[bold]📥 {o.order_no}[/bold]  {o.date}  買家:{o.buyer or '-'}  付款:{o.pay_method}/{o.pay_status}{flag}")
+        for it in o.items:
+            code, prod, src = core.match_product(plat.name, it.title)
+            if code:
+                console.print(f"    [#5A9A4A]✓[/#5A9A4A] {code}  {(prod or {}).get('商品名稱', '')[:20]}  ×{it.qty} @ {it.price:g}")
+            else:
+                console.print(f"    [#D14040]✗ 對不到[/#D14040] {it.title[:24]} ×{it.qty}（需補對照表）")
+
+    try:
+        to_void, _ = core.scan_cancellations(plat)
+    except Exception:
+        to_void = []
+    if to_void:
+        console.print(f"\n[bold #D14040]🚫 {len(to_void)} 張已開單被取消 → 建議人工作廢[/bold #D14040]")
+        for order_no, buyer, hit in to_void:
+            console.print(f"    {order_no or '?'}  買家:{buyer or '-'}  → Ragic 備註「{hit['note']}」")
+
+    console.print("\n[dim]（對帳顯示用，自動開單尚未開放；需開放時請告知）[/dim]")
+    _pause()
+
+
 # ── 主程式 ───────────────────────────────────────────────────
 
 def main():
@@ -1607,6 +1661,7 @@ def main():
                 "建立出庫單（出貨單拋轉）",
                 "匯出庫存報表（Excel）",
                 "在途查詢（採購單未到貨）",
+                "電商訂單對帳（蝦皮/官網）",
                 "新竹物流建單（開發中）",
                 "Agent mode（AI 數據分析）",
                 "退出 (Esc)",
@@ -1666,6 +1721,8 @@ def main():
                 from in_transit_query import query as query_in_transit
             query_in_transit((kw or "").strip() or None)
             _pause()
+        elif choice == "電商訂單對帳（蝦皮/官網）":
+            run_ecom_reconcile(args)
         elif choice == "新竹物流建單（開發中）":
             console.print("[#FF7700]功能開發中，敬請期待[/#FF7700]")
         elif choice == "Agent mode（AI 數據分析）":
