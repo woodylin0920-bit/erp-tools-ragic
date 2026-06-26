@@ -163,6 +163,48 @@ def test_stock_check():
     check(R._strip_code_suffix("BMC012-1") == "BMC012", "代號後綴剝除 BMC012-1 → BMC012")
 
 
+def test_create_customer():
+    print("[3c] 互動式新建客戶（離線，攔截 API）")
+    import questionary
+    import ragic_upload as R
+
+    class _Seq:
+        def __init__(self, vals): self.vals = list(vals)
+        def __call__(self, *a, **k):
+            v = self.vals.pop(0)
+            return type("R", (), {"ask": lambda s, _v=v: _v})()
+
+    class _Const:
+        def __init__(self, v): self.v = v
+        def __call__(self, *a, **k):
+            return type("R", (), {"ask": lambda s: self.v})()
+
+    answers = ["TRU-4465", "竹北大遠百", "何小姐", "0912-000-111", "新北市XX路1號", "Woody"]
+
+    # dry-run 經 find_customer → 建立、入快取
+    questionary.select = _Const("➕ 建立新客戶")
+    questionary.confirm = _Const(True)
+    questionary.text = _Seq(list(answers))
+    customers = []
+    cust = R.find_customer(customers, "4465", "TRU", dry_run=True)
+    check(cust["name"] == "TRU-4465" and customers and customers[-1]["name"] == "TRU-4465",
+          "dry-run 建立 TRU-4465 並加入快取")
+
+    # 非 dry-run：攔截 ragic_post 驗證 payload CID
+    captured = {}
+    R.ragic_post = lambda sheet, payload: (
+        captured.update(sheet=sheet, payload=payload)
+        or {"status": "SUCCESS", "ragicId": 999, "data": {"3000666": "C-00246"}})
+    questionary.text = _Seq(list(answers))
+    cust2 = R.create_customer_interactive("4465", "TRU", [], dry_run=False)
+    p = captured["payload"]
+    check(p.get("3000479") == "TRU-4465" and "3000666" not in p,
+          "payload 客戶名稱用 CID、客戶編號不填（自動）")
+    check(p.get("3000909") == "0912-000-111" and p.get("3000483") == "0912-000-111",
+          "電話寫入手機+電話兩欄")
+    check(cust2["code"] == "C-00246", "回讀 Ragic 自動編號 C-00246")
+
+
 def test_real_fixtures():
     """選用：本機 tests/fixtures/ 有真實檔才跑（檔案不進 git）。"""
     from parsers.le_parser import LEParser
@@ -185,6 +227,7 @@ if __name__ == "__main__":
     test_old_layout()
     test_mid_box_note()
     test_stock_check()
+    test_create_customer()
     test_real_fixtures()
     print()
     if _failures:

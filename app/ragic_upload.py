@@ -96,6 +96,18 @@ RAGIC_ACCOUNT = os.getenv("RAGIC_ACCOUNT", "toybebop")
 
 PRODUCT_PRICE_SHEET  = os.getenv("PRODUCT_PRICE_SHEET",  "ragicsales-order-management/20006")  # 商品單價管理
 CUSTOMER_SHEET       = os.getenv("CUSTOMER_SHEET",       "ragicsales-order-management/20004")  # 客戶
+# 客戶表(20004)欄位 ID（CID）。Ragic 寫入 API 只認 CID 不認名稱；可用 ?api&naming=EID 取得。
+CUSTOMER_FIELD_CIDS = {
+    "name":      "3000479",  # 客戶名稱（必填）
+    "short":     "3001873",  # 客戶簡稱
+    "owner":     "3000480",  # 客戶負責人
+    "contact":   "3001449",  # 主要聯絡窗口
+    "mobile":    "3000909",  # 窗口手機
+    "phone":     "3000483",  # 電話號碼
+    "ship_addr": "3000903",  # 送貨地址
+    "remark":    "3000913",  # 備註
+    "code":      "3000666",  # 客戶編號（自動產生，唯讀，不可填）
+}
 SALES_ORDER_SHEET    = os.getenv("SALES_ORDER_SHEET",    "ragicsales-order-management/20001")  # 銷貨單
 DELIVERY_ORDER_SHEET = os.getenv("DELIVERY_ORDER_SHEET", "ragicsales-order-management/20002")  # 出貨單
 OUTBOUND_ORDER_SHEET = os.getenv("OUTBOUND_ORDER_SHEET", "ragicinventory/20009")               # 出庫單
@@ -413,7 +425,57 @@ def load_customers() -> list:
 
 # ── 客戶比對 ─────────────────────────────────────────────────
 
-def find_customer(customers: list, store_code: str, client_code: str = "") -> Optional[dict]:
+def create_customer_interactive(store_code: str, client_code: str, customers: list,
+                                dry_run: bool = False) -> Optional[dict]:
+    """互動式新建客戶並寫入 Ragic 客戶表(20004)。成功則加入 customers 快取並回傳。
+    客戶編號由 Ragic 自動產生（不填）。取消/失敗回 None。"""
+    suggested = f"{client_code}-{store_code}" if client_code else str(store_code)
+    name = (questionary.text("客戶名稱（必填）", default=suggested).ask() or "").strip()
+    if not name:
+        console.print("[#FF7700]未輸入客戶名稱，取消建立[/#FF7700]")
+        return None
+    short   = (questionary.text("客戶簡稱（門市名，可留空）", default="").ask() or "").strip()
+    contact = (questionary.text("主要聯絡窗口（可留空）", default="").ask() or "").strip()
+    phone   = (questionary.text("聯絡電話/手機（可留空）", default="").ask() or "").strip()
+    addr    = (questionary.text("送貨地址（可留空）", default="").ask() or "").strip()
+    owner   = (questionary.text("客戶負責人", default="Woody").ask() or "Woody").strip()
+
+    console.print(Panel(
+        f"客戶名稱：{name}\n客戶簡稱：{short or '—'}\n聯絡窗口：{contact or '—'}\n"
+        f"電話/手機：{phone or '—'}\n送貨地址：{addr or '—'}\n負責人：{owner}",
+        title="新客戶（客戶編號由 Ragic 自動產生）", border_style="#C5A059"))
+    if not questionary.confirm("確認建立此客戶？", default=True).ask():
+        console.print("[#FF7700]已取消建立[/#FF7700]")
+        return None
+
+    C = CUSTOMER_FIELD_CIDS
+    payload = {C["name"]: name, C["owner"]: owner}
+    if short:   payload[C["short"]]     = short
+    if contact: payload[C["contact"]]   = contact
+    if phone:   payload[C["mobile"]]    = phone; payload[C["phone"]] = phone
+    if addr:    payload[C["ship_addr"]] = addr
+
+    if dry_run:
+        console.print("[#FF7700]★ DRY-RUN：不實際建立客戶[/#FF7700]")
+        cust = {"code": "C-DRYRUN", "name": name, "address": addr}
+    else:
+        try:
+            result = ragic_post(CUSTOMER_SHEET, payload)
+        except Exception as e:
+            console.print(f"[red]✗ 建立客戶失敗：{e}[/red]")
+            return None
+        if result.get("status") != "SUCCESS" and not result.get("ragicId"):
+            console.print(f"[red]✗ 建立客戶失敗：{result.get('msg', result)}[/red]")
+            return None
+        new_code = str(result.get("data", {}).get(C["code"], "")).strip()
+        console.print(f"[#5A9A4A]✓ 客戶建立成功！編號 {new_code}（Ragic ID {result.get('ragicId', '')}）[/#5A9A4A]")
+        cust = {"code": new_code, "name": name, "address": addr}
+    customers.append(cust)   # 加入快取，後續比對找得到
+    return cust
+
+
+def find_customer(customers: list, store_code: str, client_code: str = "",
+                  dry_run: bool = False) -> Optional[dict]:
     # 若有 client_code（如 TRU），優先在該客群中搜尋
     if client_code:
         narrowed = [c for c in customers if store_code in c["name"] and client_code in c["name"]]
@@ -429,13 +491,14 @@ def find_customer(customers: list, store_code: str, client_code: str = "") -> Op
         choices = [f"{c['code']}  {c['name']}" for c in matches]
         sel = questionary.select(f"找到多個含「{store_code}」的客戶，請選擇：", choices=choices).ask()
         return matches[choices.index(sel)]
-    # 找不到 → 先詢問是否暫用尚未建檔，再讓使用者搜尋
+    # 找不到 → 提供：建立新客戶 / 搜尋現有 / 暫用尚未建檔
     console.print(f"[#FF7700]⚠ 找不到含「{store_code}」的客戶[/#FF7700]")
-    use_placeholder = questionary.confirm(
-        "是否暫用「C-00000 000尚未建檔」代替？（之後在 Ragic 補填客戶）",
-        default=True,
-    ).ask()
-    if use_placeholder:
+    BUILD, SEARCH, PLACEHOLDER = "➕ 建立新客戶", "🔍 搜尋現有客戶", "暫用「C-00000 尚未建檔」"
+    action = questionary.select("請選擇：", choices=[BUILD, SEARCH, PLACEHOLDER]).ask()
+    if action == BUILD:
+        new = create_customer_interactive(store_code, client_code, customers, dry_run)
+        return new or UNREGISTERED_CUSTOMER
+    if action == PLACEHOLDER or not action:
         return UNREGISTERED_CUSTOMER
     all_choices = [f"{c['code']}  {c['name']}" for c in customers]
     sel = questionary.autocomplete(
@@ -726,7 +789,7 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
                 console.print("[#FF7700]已跳過[/#FF7700]")
                 continue
 
-        customer = find_customer(customers, order.store_code, client_code)
+        customer = find_customer(customers, order.store_code, client_code, dry_run=args.dry_run)
         if not customer:
             console.print("[red]無法確認客戶，跳過[/red]")
             continue
