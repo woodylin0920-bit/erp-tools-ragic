@@ -42,11 +42,13 @@ class BasePlatform:
     order_type = ""                             # Ragic 訂單單別
     has_detail = True                           # 訂單信是否含商品明細
 
-    def parse_order(self, body: str) -> Optional[EOrder]:
-        """從信件內文解析出一張訂單。解析不出回 None。"""
+    def parse_order(self, subject: str, body: str) -> Optional[EOrder]:
+        """從信件（主旨+內文）解析出一張訂單。解析不出回 None。
+        部分平台（蝦皮）訂單號/買家在主旨。"""
         raise NotImplementedError
 
-    def dedup_note(self, order: EOrder) -> str:
-        """回傳用來和 Ragic『備註』比對是否已開單的鍵。
-        ShopStore/Pinkoi：平台訂單號；蝦皮：另以買家+日期+金額，於子類覆寫。"""
-        return order.order_no
+    def is_existing(self, order: EOrder, ragic_orders: list) -> bool:
+        """判斷此訂單在 Ragic 是否已開（防重複）。
+        預設：平台訂單號 == Ragic 備註（ShopStore/Pinkoi）。蝦皮於子類覆寫。
+        ragic_orders: [{'note','date','total','customer'}, ...]"""
+        return any(r["note"] == order.order_no for r in ragic_orders)

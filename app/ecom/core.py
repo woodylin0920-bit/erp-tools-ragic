@@ -92,16 +92,21 @@ def match_product(platform: str, title: str):
     return None, None, ("ambiguous" if hits else "none")
 
 
-def existing_order_notes() -> set:
-    """Ragic 銷貨單『備註』集合（ShopStore/Pinkoi 備註=平台訂單號），用於防重複。"""
+def existing_orders() -> list:
+    """Ragic 銷貨單清單（備註/日期/金額/客戶），供各平台判斷是否已開。"""
     recs = list(_ragic_get(SALES_ORDER_SHEET, "&listing=true").values())
-    return {str(r.get("備註", "")).strip() for r in recs if str(r.get("備註", "")).strip()}
+    return [{
+        "note": str(r.get("備註", "")).strip(),
+        "date": str(r.get("訂單日期", "")).strip(),
+        "total": str(r.get("總金額(含稅)", "")).strip(),
+        "customer": str(r.get("客戶名稱", "")).strip(),
+    } for r in recs]
 
 
 def reconcile(platform_obj, limit=None):
     """對帳補漏（唯讀）：讀平台新訂單信 vs Ragic 已開 → 回 (done, missing)。
     done/missing 皆為 EOrder list。"""
-    existing = existing_order_notes()
+    existing = existing_orders()
     M = mailbox.connect(platform_obj.mailbox_user, platform_obj.mailbox_pw_file)
     try:
         uids = mailbox.search(M, platform_obj.sender_query)
@@ -109,11 +114,12 @@ def reconcile(platform_obj, limit=None):
             uids = uids[-limit:]
         done, missing, seen = [], [], set()
         for u in uids:
-            order = platform_obj.parse_order(mailbox.body(M, u))
+            subject, body = mailbox.fetch(M, u)
+            order = platform_obj.parse_order(subject, body)
             if not order or order.order_no in seen:
                 continue
             seen.add(order.order_no)
-            (done if platform_obj.dedup_note(order) in existing else missing).append(order)
+            (done if platform_obj.is_existing(order, existing) else missing).append(order)
     finally:
         M.logout()
     return done, missing

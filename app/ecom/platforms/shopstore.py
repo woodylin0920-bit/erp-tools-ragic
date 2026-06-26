@@ -17,7 +17,7 @@ class ShopStore(BasePlatform):
     order_type = "官網"
     has_detail = True
 
-    def parse_order(self, body: str):
+    def parse_order(self, subject: str, body: str):
         m_no = re.search(r"訂單編號[:：]\s*(\S+)", body)
         if not m_no:
             return None

@@ -34,10 +34,7 @@ def search(M: imaplib.IMAP4_SSL, gmail_query: str) -> list:
     return data[0].split() if data and data[0] else []
 
 
-def body(M: imaplib.IMAP4_SSL, uid) -> str:
-    """取信件內文（優先純文字，否則 HTML 去標籤）。"""
-    typ, md = M.uid("FETCH", uid, "(BODY.PEEK[])")
-    msg = email.message_from_bytes(md[0][1])
+def _body_of(msg) -> str:
     for p in msg.walk():
         if p.get_content_type() == "text/plain":
             t = (p.get_payload(decode=True) or b"").decode(
@@ -51,3 +48,15 @@ def body(M: imaplib.IMAP4_SSL, uid) -> str:
             h = re.sub(r"<(style|script|head)[^>]*>.*?</\1>", "", h, flags=re.S | re.I)
             return re.sub(r"[ \t]+", " ", re.sub(r"<[^>]+>", " ", h))
     return ""
+
+
+def fetch(M: imaplib.IMAP4_SSL, uid):
+    """取 (主旨, 內文)。部分平台（如蝦皮）的訂單號/買家在主旨。"""
+    typ, md = M.uid("FETCH", uid, "(BODY.PEEK[])")
+    msg = email.message_from_bytes(md[0][1])
+    return decode_hdr(msg.get("Subject", "")), _body_of(msg)
+
+
+def body(M: imaplib.IMAP4_SSL, uid) -> str:
+    """取信件內文（向後相容）。"""
+    return fetch(M, uid)[1]
