@@ -19,7 +19,7 @@ class Shopee(BasePlatform):
     # 涵蓋兩種帶明細的訂單信：貨到付款確認、以及（一般付款的明細在）出貨提醒。
     # 同一訂單可能兩封都收到 → 以訂單號去重（reconcile 內處理）。
     sender_query = "from:shopee.tw (貨到付款訂單 OR 準時出貨)"
-    cancel_query = "from:shopee.tw subject:取消"
+    cancel_query = "from:shopee.tw (取消 OR 不成立)"
     customer = "蝦皮"
     customer_code = "C-00038"
     order_type = "蝦皮"
@@ -63,9 +63,18 @@ class Shopee(BasePlatform):
                       pay_status="未付款" if cod else "已付款")
 
     def parse_cancel(self, subject: str, body: str):
-        """蝦皮取消信主旨：「訂單 #260414RP2H7VUP 被買家 est934011 取消」。"""
+        """蝦皮取消有兩型：
+        ① 買家取消：「訂單 #X 被買家 Y 取消」
+        ② 訂單不成立：「Y的訂單#X已確定不成立」/「您已確認訂單不成立#X」"""
         m = re.search(r"訂單\s*#?([A-Z0-9]{8,})\s*被買家\s*(\S+?)\s*取消", subject)
-        return (m.group(1), m.group(2)) if m else None
+        if m:
+            return (m.group(1), m.group(2))
+        if "不成立" in subject:
+            mo = (re.search(r"#([A-Z0-9]{8,})", subject)
+                  or re.search(r"訂單單號[:：]\s*#?(\S+)", body))
+            if mo:
+                return (mo.group(1), "")
+        return None
 
     def is_existing(self, order, ragic_orders):
         """先用訂單號精準比對（系統開的單備註含訂單號）；歷史人工單只有買家，
