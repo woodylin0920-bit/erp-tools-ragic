@@ -146,6 +146,23 @@ def test_mid_box_note():
     check(le[0]["box_note"] == "", "LE(auto_unit_spec) 不誤標")
 
 
+def test_stock_check():
+    print("[3b] 開單前庫存把關（離線，預灌庫存快取）")
+    import ragic_upload as R
+    R._stock_cache["TW01"] = {"BBK012": 4, "BMC012": 59}  # 預灌，避免打 API
+    resolved = [
+        {"product_code": "BMC012-1", "product_name": "小汐-中盒", "spec": 8,
+         "unit": "中盒", "quantity": 3, "unit_price": 0, "amount": 0, "box_note": ""},
+        {"product_code": "BBK012-1", "product_name": "貝琪-中盒", "spec": 8,
+         "unit": "中盒", "quantity": 10, "unit_price": 0, "amount": 0, "box_note": ""},
+        {"product_code": "ZZZ999-1", "product_name": "未追蹤品", "spec": 1,
+         "unit": "個", "quantity": 2, "unit_price": 0, "amount": 0, "box_note": ""},
+    ]
+    short = R.check_stock(resolved, "TW01")
+    check(len(short) == 1 and "貝琪" in short[0], "貝琪超量(10>4)入不足清單；小汐足、未追蹤不誤判")
+    check(R._strip_code_suffix("BMC012-1") == "BMC012", "代號後綴剝除 BMC012-1 → BMC012")
+
+
 def test_real_fixtures():
     """選用：本機 tests/fixtures/ 有真實檔才跑（檔案不進 git）。"""
     from parsers.le_parser import LEParser
@@ -167,6 +184,7 @@ if __name__ == "__main__":
     test_new_layout()
     test_old_layout()
     test_mid_box_note()
+    test_stock_check()
     test_real_fixtures()
     print()
     if _failures:

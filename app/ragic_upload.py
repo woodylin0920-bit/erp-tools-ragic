@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import time
@@ -99,6 +100,7 @@ SALES_ORDER_SHEET    = os.getenv("SALES_ORDER_SHEET",    "ragicsales-order-manag
 DELIVERY_ORDER_SHEET = os.getenv("DELIVERY_ORDER_SHEET", "ragicsales-order-management/20002")  # 出貨單
 OUTBOUND_ORDER_SHEET = os.getenv("OUTBOUND_ORDER_SHEET", "ragicinventory/20009")               # 出庫單
 INVENTORY_SHEET      = os.getenv("INVENTORY_SHEET",      "ragicinventory/20008")               # 倉庫庫存
+STOCK_CHECK_WAREHOUSE = os.getenv("STOCK_CHECK_WAREHOUSE", "TW01")  # 開單前庫存把關的出貨倉（預設台灣總部）
 
 ORDER_ITEMS_SUBTABLE_KEY    = os.getenv("ORDER_ITEMS_SUBTABLE_KEY",    "_subtable_3000842")  # 銷貨單訂購項目子表
 OUTBOUND_ITEMS_SUBTABLE_KEY = os.getenv("OUTBOUND_ITEMS_SUBTABLE_KEY", "_subtable_3001132")  # 出庫單項目子表
@@ -322,6 +324,76 @@ def load_price_index() -> Dict[str, list]:
         index.setdefault(barcode, []).append(entry)
     console.print(f"[#5A9A4A]✓ 載入 {len(index)} 種商品[/#5A9A4A]")
     return index
+
+
+_stock_cache: Dict[str, Dict[str, float]] = {}
+
+
+def _strip_code_suffix(code: str) -> str:
+    """商品單價代號(如 BMC012-1) → 庫存商品編號(BMC012)：剝掉結尾 -數字。"""
+    return re.sub(r'-\d+$', '', str(code).strip())
+
+
+def load_stock(warehouse: str = STOCK_CHECK_WAREHOUSE) -> Dict[str, float]:
+    """載入指定倉庫的庫存 {商品編號: 數量}，模組級快取（一次 API）。
+    庫存依規格分開記（中盒/單盒/整箱各一筆），故數量單位與該規格代號一致。"""
+    if warehouse in _stock_cache:
+        return _stock_cache[warehouse]
+    with console.status(f"[#B0A898]載入 {warehouse} 庫存...[/#B0A898]", spinner="dots"):
+        records = ragic_get(INVENTORY_SHEET)
+    stock: Dict[str, float] = {}
+    for rec in records.values():
+        if str(rec.get("倉庫代碼", "")).strip() != warehouse:
+            continue
+        code = str(rec.get("商品編號", "")).strip()
+        if not code:
+            continue
+        try:
+            stock[code] = stock.get(code, 0.0) + float(rec.get("數量") or 0)
+        except (ValueError, TypeError):
+            pass
+    _stock_cache[warehouse] = stock
+    return stock
+
+
+def check_stock(resolved: list, warehouse: str = STOCK_CHECK_WAREHOUSE) -> list:
+    """比對每項的下單量 vs 出貨倉庫存，顯示對照表並標紅不足項。
+    回傳不足項的說明字串清單（不阻擋，只提醒）。庫存無此代號者視為未追蹤、不判定。"""
+    try:
+        stock = load_stock(warehouse)
+    except Exception as e:
+        console.print(f"[#FF7700]⚠ 無法載入庫存，略過庫存把關：{e}[/#FF7700]")
+        return []
+
+    table = Table(show_header=True, header_style="bold #C5A059", box=None)
+    table.add_column("商品名稱", min_width=20)
+    table.add_column("規格", width=5, justify="right")
+    table.add_column("下單", width=6, justify="right")
+    table.add_column(f"{warehouse}庫存", width=8, justify="right")
+    table.add_column("判定", width=10)
+
+    shortages = []
+    for it in resolved:
+        base = _strip_code_suffix(it["product_code"])
+        avail = stock.get(base)            # None = 庫存表未追蹤此代號
+        ordered = it["quantity"]
+        if avail is None:
+            verdict, avail_txt = "[dim]無庫存資料[/dim]", "—"
+        elif ordered > avail:
+            short = ordered - avail
+            verdict, avail_txt = f"[bold #D14040]✗ 缺 {short:g}[/bold #D14040]", f"{avail:g}"
+            shortages.append(f"{it['product_name']} 下單{ordered:g} > {warehouse}庫存{avail:g}（缺{short:g}）")
+        else:
+            verdict, avail_txt = "[#5A9A4A]✓ 足[/#5A9A4A]", f"{avail:g}"
+        name = it["product_name"][:22] + ("…" if len(it["product_name"]) > 22 else "")
+        style = "#D14040" if (avail is not None and ordered > avail) else None
+        table.add_row(name, str(it["spec"]), f"{ordered:g}", avail_txt, verdict, style=style)
+
+    console.print(f"\n[bold]庫存把關（出貨倉 {warehouse}）[/bold]")
+    console.print(table)
+    if shortages:
+        console.print(f"[bold #D14040]⚠ {len(shortages)} 項庫存不足，請確認是否仍要開單[/bold #D14040]")
+    return shortages
 
 
 def load_customers() -> list:
@@ -665,6 +737,9 @@ def process_file(excel_path: Path, args, price_index: dict, customers: list):
             continue
 
         show_items_table(customer, order.store_code, order.po_number, resolved)
+
+        # 開單前庫存把關：比對出貨倉中盒庫存，不足標紅提醒（不阻擋）
+        check_stock(resolved)
 
         is_unregistered = customer["code"] == UNREGISTERED_CUSTOMER["code"]
         order_type, order_status, tax_rate, shipping_fee, notes, internal_notes, commission = ask_order_options(is_unregistered)
