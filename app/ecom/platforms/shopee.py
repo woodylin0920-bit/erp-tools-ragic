@@ -53,16 +53,26 @@ class Shopee(BasePlatform):
         # 日期正規化：兼容「2026-06-24」與「2026年3月12日」→ 統一 YYYY-MM-DD（補零）
         dm = re.search(r"訂單日期[:：]\s*(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})", body)
         date = f"{dm.group(1)}-{int(dm.group(2)):02d}-{int(dm.group(3)):02d}" if dm else ""
+        mt = re.search(r"總金額[:：]\s*NT\$?\s*([\d,]+)", body)
+        total = float(mt.group(1).replace(",", "")) if mt else sum(i.price * i.qty for i in items)
         return EOrder(self.name, order_no, date, items,
-                      buyer=buyer,
+                      buyer=buyer, total=total,
                       pay_method="貨到付款" if cod else "一般付款",
                       pay_status="未付款" if cod else "已付款")
 
     def is_existing(self, order, ragic_orders):
-        """蝦皮備註=買家帳號，無訂單號 → 以 買家 + 同日 判斷是否已開。"""
-        od = re.sub(r"\D", "", order.date)[:8]   # YYYYMMDD
+        """蝦皮備註=買家帳號（無訂單號）→ 同買家、且(同日 或 同總額) 即視為已開。
+        加總額當第二把鑰匙，避免人工在非下單日開單造成日期對不上而誤判漏開。"""
+        od = re.sub(r"\D", "", order.date)[:8]
+        ot = round(order.total)
         for r in ragic_orders:
-            if r["customer"] == self.customer and r["note"] == order.buyer:
-                if re.sub(r"\D", "", r["date"])[:8] == od:
-                    return True
+            if r["customer"] != self.customer or r["note"] != order.buyer:
+                continue
+            same_date = re.sub(r"\D", "", r["date"])[:8] == od
+            try:
+                same_total = round(float(r["total"])) == ot and ot > 0
+            except (ValueError, TypeError):
+                same_total = False
+            if same_date or same_total:
+                return True
         return False

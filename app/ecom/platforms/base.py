@@ -25,6 +25,7 @@ class EOrder:
     pay_status: str = ""             # 付款狀態（未付款/已付款）
     ship_method: str = ""            # 送貨方式
     fee: float = 0.0                 # 運費
+    total: float = 0.0               # 訂單總金額（防重複輔助鍵）
 
     @property
     def is_cod_pending(self) -> bool:
