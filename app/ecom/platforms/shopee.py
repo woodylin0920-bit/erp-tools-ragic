@@ -18,8 +18,13 @@ class Shopee(BasePlatform):
     mailbox_pw_file = "~/.boptoys-gmail_app_password"
     sender_query = "from:shopee.tw 貨到付款 訂單"
     customer = "蝦皮"
+    customer_code = "C-00038"
     order_type = "蝦皮"
     has_detail = True
+
+    def ragic_note(self, order):
+        """蝦皮備註存買家帳號（與現有人工單一致）。"""
+        return order.buyer
 
     def parse_order(self, subject: str, body: str):
         ms = re.search(r"來自(.+?)的.*?訂單\s*#?([A-Z0-9]+)", subject)

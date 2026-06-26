@@ -39,8 +39,14 @@ class BasePlatform:
     mailbox_pw_file = "~/.boptoys-info_app_password"
     sender_query = ""                           # Gmail 搜尋（限定「新訂單」信）
     customer = ""                               # Ragic 客戶名稱（單一通路客戶）
+    customer_code = ""                          # Ragic 客戶編號（開單用）
     order_type = ""                             # Ragic 訂單單別
     has_detail = True                           # 訂單信是否含商品明細
+
+    def ragic_note(self, order: "EOrder") -> str:
+        """開單時寫入 Ragic『備註』的值（也是防重複鍵）。
+        ShopStore/Pinkoi：平台訂單號；蝦皮：買家帳號（子類覆寫）。"""
+        return order.order_no
 
     def parse_order(self, subject: str, body: str) -> Optional[EOrder]:
         """從信件（主旨+內文）解析出一張訂單。解析不出回 None。

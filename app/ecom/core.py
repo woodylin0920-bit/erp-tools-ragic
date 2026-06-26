@@ -92,6 +92,38 @@ def match_product(platform: str, title: str):
     return None, None, ("ambiguous" if hits else "none")
 
 
+_hist_price_cache = None
+
+
+_ECOM_ORDER_TYPES = {"蝦皮", "官網"}
+
+
+def historical_prices() -> dict:
+    """從「同類型（電商）」歷史銷貨單彙整每個商品代號最常用的單價 {code: price}。
+    電商=零售，故只看蝦皮/官網單，避免混入 TRU 等批發淨價而誤判。
+    開單時用來對照、確保與同類型歷史一致、價格有異動可提醒。"""
+    global _hist_price_cache
+    if _hist_price_cache is None:
+        from collections import Counter
+        listing = list(_ragic_get(SALES_ORDER_SHEET, "&listing=true").values())
+        ecom_ids = {r["_ragicId"] for r in listing
+                    if str(r.get("訂單單別", "")).strip() in _ECOM_ORDER_TYPES}
+        full = list(_ragic_get(SALES_ORDER_SHEET, "&subtables=true").values())
+        agg = {}
+        for r in full:
+            if r["_ragicId"] not in ecom_ids:
+                continue
+            for k, v in r.items():
+                if isinstance(v, dict) and "subtable" in k.lower():
+                    for row in v.values():
+                        c = str(row.get("商品販售代號", "")).strip()
+                        p = str(row.get("單價", "")).strip()
+                        if c and p:
+                            agg.setdefault(c, Counter())[p] += 1
+        _hist_price_cache = {c: cnt.most_common(1)[0][0] for c, cnt in agg.items()}
+    return _hist_price_cache
+
+
 def existing_orders() -> list:
     """Ragic 銷貨單清單（備註/日期/金額/客戶），供各平台判斷是否已開。"""
     recs = list(_ragic_get(SALES_ORDER_SHEET, "&listing=true").values())
@@ -101,6 +133,69 @@ def existing_orders() -> list:
         "total": str(r.get("總金額(含稅)", "")).strip(),
         "customer": str(r.get("客戶名稱", "")).strip(),
     } for r in recs]
+
+
+# 銷貨單欄位 CID（與 app/ragic_upload.py build_payload 一致）
+_SALES_ITEMS_SUBTABLE = "_subtable_3000842"
+
+
+def resolve_order(platform_name, order):
+    """把訂單品項對應到 Ragic 商品。回 (resolved, misses)。
+    resolved=[{code, price, qty, name}]；misses=[對不到的標題]。"""
+    resolved, misses = [], []
+    for it in order.items:
+        code, prod, _ = match_product(platform_name, it.title)
+        if code:
+            resolved.append({"code": code, "price": it.price, "qty": it.qty,
+                             "name": (prod or {}).get("商品名稱", "")})
+        else:
+            misses.append(it.title)
+    return resolved, misses
+
+
+def build_payload(platform_obj, order, resolved) -> dict:
+    """組 Ragic 銷貨單 payload（內含稅 (5%)、稅額0、總額=小計+運費）。"""
+    from datetime import datetime
+    sub, subtotal, n = {}, 0.0, len(resolved)
+    for i, it in enumerate(resolved):
+        amt = round(it["price"] * it["qty"], 2)
+        subtotal += amt
+        sub[str(-(n - i))] = {
+            "3000829": i + 1, "3000830": it["code"],
+            "3000832": it["price"], "3000833": it["qty"], "3000834": amt,
+        }
+    fee = float(order.fee or 0)
+    m = re.match(r"(\d{4})\D(\d{2})\D(\d{2})", order.date or "")
+    odate = f"{m.group(1)}/{m.group(2)}/{m.group(3)}" if m else datetime.now().strftime("%Y/%m/%d")
+    return {
+        "3000812": platform_obj.order_type,         # 訂單單別
+        "3000813": odate,                           # 訂單日期
+        "3000814": "未出貨",                        # 訂單狀態（出貨前先開好）
+        "3000815": platform_obj.customer_code,      # 客戶編號
+        "3000836": "營業稅",                        # 課稅別
+        "3000838": "(5%)",                          # 稅率（內含）
+        "3000835": round(subtotal, 2),              # 小計
+        "3000837": 0,                               # 稅額（內含=0）
+        "3000839": round(subtotal + fee, 2),        # 總金額(含稅)
+        "3001498": int(fee),                        # 訂單運費
+        "3000840": platform_obj.ragic_note(order),  # 備註（訂單號/買家，防重複鍵）
+        "1000074": f"【程式建單·電商】{platform_obj.name} 訂單 {order.order_no}",  # 內部備注
+        _SALES_ITEMS_SUBTABLE: sub,
+    }
+
+
+def create_order(platform_obj, order, resolved, commit=False) -> dict:
+    """開立 Ragic 銷貨單。commit=False 只回 payload 預覽（不寫入）。"""
+    payload = build_payload(platform_obj, order, resolved)
+    if not commit:
+        return {"dry_run": True, "payload": payload}
+    key = open(_KEY).read().strip()
+    url = f"{RAGIC_BASE}/{RAGIC_ACCOUNT}/{SALES_ORDER_SHEET}?api&doLinkLoad=true"
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode(),
+        headers={"Authorization": "Basic " + key, "Content-Type": "application/json"},
+        method="POST")
+    return json.load(urllib.request.urlopen(req, timeout=60))
 
 
 def reconcile(platform_obj, limit=None):

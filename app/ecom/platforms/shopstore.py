@@ -14,6 +14,7 @@ class ShopStore(BasePlatform):
     name = "shopstore"
     sender_query = "from:shopstore.tw 新訂單"
     customer = "ShopStore"
+    customer_code = "C-00094"
     order_type = "官網"
     has_detail = True
 
@@ -21,12 +22,17 @@ class ShopStore(BasePlatform):
         m_no = re.search(r"訂單編號[:：]\s*(\S+)", body)
         if not m_no:
             return None
+        # 取「訂單商品內容」到「商品合計」之間整段，逐一抓出所有品項（含加購品）。
+        blk = re.search(r"訂單商品內容\s*(.+?)\s*(?:商品合計|$)", body, re.S)
+        block = blk.group(1) if blk else ""
         items = []
-        for m in re.finditer(
-            r"訂單商品內容\s*(.+?)\s+(\d+)\s*[×x]\s*NT\$?\s*([\d,]+)", body, re.S
-        ):
+        # 每項格式：商品名  N × NT$單價  NT$小計
+        for m in re.finditer(r"(.+?)\s+(\d+)\s*[×x]\s*NT\$?\s*([\d,]+)\s*NT\$?\s*[\d,]+",
+                             block, re.S):
             title = re.sub(r"\s+", " ", m.group(1)).strip()
-            items.append(EItem(title, int(m.group(2)), float(m.group(3).replace(",", ""))))
+            if title:
+                items.append(EItem(title, int(m.group(2)),
+                                   float(m.group(3).replace(",", ""))))
         if not items:
             return None
 

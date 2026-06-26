@@ -35,6 +35,7 @@ def main():
     total = len(done) + len(missing)
     print(f"Email 新訂單 {total} 張 ｜ ✅ Ragic 已開 {len(done)} ｜ 📥 漏開 {len(missing)}\n")
 
+    hist = core.historical_prices()   # 參考歷史訂單單價
     need_review = 0
     for o in missing:
         pay = f"{o.pay_method or '?'}/{o.pay_status or '?'}"
@@ -45,10 +46,14 @@ def main():
             code, prod, src = core.match_product(name, it.title)
             if code:
                 pname = (prod or {}).get("商品名稱", "?")
-                print(f"    ✅ {code:<10} {pname[:24]:<24} ×{it.qty} @ {it.price:g}  [{_SRC_LABEL.get(src, src)}]")
+                hp = hist.get(code)
+                note = ""
+                if hp and str(int(float(hp))) != str(int(it.price)):
+                    note = f"  ⚠售價≠歷史({hp})"
+                print(f"    ✅ {code:<10} {pname[:22]:<22} ×{it.qty} @ {it.price:g}  [{_SRC_LABEL.get(src, src)}]{note}")
             else:
                 need_review += 1
-                print(f"    ❓ 對不到「{it.title[:30]}」×{it.qty} @ {it.price:g}  [{_SRC_LABEL.get(src, src)}]")
+                print(f"    ❓ 對不到「{it.title[:28]}」×{it.qty} @ {it.price:g}  [{_SRC_LABEL.get(src, src)}]")
     if need_review:
         print(f"\n⚠ {need_review} 個品項需補對照表（product_map.json）後才能開單")
     print("\n（dry-run 完成：未寫入 Ragic、未更動信箱）")
