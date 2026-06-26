@@ -13,6 +13,7 @@ from .base import BasePlatform, EItem, EOrder
 class ShopStore(BasePlatform):
     name = "shopstore"
     sender_query = "from:shopstore.tw 新訂單"
+    cancel_query = "from:shopstore.tw 申請取消訂單"
     customer = "ShopStore"
     customer_code = "C-00094"
     order_type = "官網"
@@ -55,3 +56,10 @@ class ShopStore(BasePlatform):
             ship_method=grab("送貨方式"),
             fee=float(m_fee.group(1).replace(",", "")) if m_fee else 0.0,
         )
+
+    def parse_cancel(self, subject: str, body: str):
+        """ShopStore 取消信：主旨「…有一筆申請取消訂單」，內文有訂單編號。"""
+        if "取消" not in subject:
+            return None
+        m = re.search(r"訂單編號[:：]\s*(\S+)", body)
+        return (m.group(1).strip(), "") if m else None

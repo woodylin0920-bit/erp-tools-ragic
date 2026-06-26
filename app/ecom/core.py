@@ -179,7 +179,8 @@ def build_payload(platform_obj, order, resolved) -> dict:
         "3000839": round(subtotal + fee, 2),        # 總金額(含稅)
         "3001498": int(fee),                        # 訂單運費
         "3000840": platform_obj.ragic_note(order),  # 備註（訂單號/買家，防重複鍵）
-        "1000074": f"【程式建單·電商】{platform_obj.name} 訂單 {order.order_no}",  # 內部備注
+        # 內部備注：明確標記「系統自動建單」，人工一眼分辨、不會誤動
+        "1000074": f"【系統自動建單·{platform_obj.name}】訂單 {order.order_no}",
         _SALES_ITEMS_SUBTABLE: sub,
     }
 
@@ -196,6 +197,39 @@ def create_order(platform_obj, order, resolved, commit=False) -> dict:
         headers={"Authorization": "Basic " + key, "Content-Type": "application/json"},
         method="POST")
     return json.load(urllib.request.urlopen(req, timeout=60))
+
+
+def scan_cancellations(platform_obj, limit=None):
+    """掃描取消信，比對 Ragic 是否已開該單 → 回 (to_void, not_created)。
+    to_void：已在 Ragic（備註含訂單號/買家）→ 待人工作廢；
+    not_created：Ragic 查無 → 不必處理。唯讀，只列出不作廢。"""
+    if not platform_obj.cancel_query:
+        return [], []
+    existing = existing_orders()
+    M = mailbox.connect(platform_obj.mailbox_user, platform_obj.mailbox_pw_file)
+    try:
+        uids = mailbox.search(M, platform_obj.cancel_query)
+        if limit:
+            uids = uids[-limit:]
+        to_void, not_created, seen = [], [], set()
+        for u in uids:
+            subject, body = mailbox.fetch(M, u)
+            parsed = platform_obj.parse_cancel(subject, body)
+            if not parsed:
+                continue
+            order_no, buyer = parsed
+            if order_no in seen:
+                continue
+            seen.add(order_no)
+            # 在 Ragic 找：備註含訂單號（系統開的）或含買家（蝦皮歷史）
+            hit = next((r for r in existing
+                        if r["customer"] == platform_obj.customer
+                        and ((order_no and order_no in r["note"])
+                             or (buyer and buyer in r["note"]))), None)
+            (to_void if hit else not_created).append((order_no, buyer, hit))
+    finally:
+        M.logout()
+    return to_void, not_created
 
 
 def reconcile(platform_obj, limit=None):

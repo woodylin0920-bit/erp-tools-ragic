@@ -39,6 +39,7 @@ class BasePlatform:
     mailbox_user = "info@boptoys.com.tw"        # 訂單通知信箱
     mailbox_pw_file = "~/.boptoys-info_app_password"
     sender_query = ""                           # Gmail 搜尋（限定「新訂單」信）
+    cancel_query = ""                           # Gmail 搜尋（取消信）；空字串=不支援
     customer = ""                               # Ragic 客戶名稱（單一通路客戶）
     customer_code = ""                          # Ragic 客戶編號（開單用）
     order_type = ""                             # Ragic 訂單單別
@@ -53,6 +54,10 @@ class BasePlatform:
         """從信件（主旨+內文）解析出一張訂單。解析不出回 None。
         部分平台（蝦皮）訂單號/買家在主旨。"""
         raise NotImplementedError
+
+    def parse_cancel(self, subject: str, body: str):
+        """從取消信解析出 (order_no, buyer)。解析不出回 None。子類覆寫。"""
+        return None
 
     def is_existing(self, order: EOrder, ragic_orders: list) -> bool:
         """判斷此訂單在 Ragic 是否已開（防重複）。

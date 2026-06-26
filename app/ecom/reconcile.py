@@ -56,6 +56,16 @@ def main():
                 print(f"    ❓ 對不到「{it.title[:28]}」×{it.qty} @ {it.price:g}  [{_SRC_LABEL.get(src, src)}]")
     if need_review:
         print(f"\n⚠ {need_review} 個品項需補對照表（product_map.json）後才能開單")
+
+    # 取消掃描：列出「已開但被取消」的單，待人工作廢（程式只標示、不刪）
+    to_void, _ = core.scan_cancellations(plat)
+    if to_void:
+        print(f"\n🚫 取消掃描：{len(to_void)} 張已開單被取消 → 建議人工作廢")
+        for order_no, buyer, hit in to_void:
+            print(f"   訂單 {order_no or '?'} 買家{buyer or '?'} → Ragic 備註「{hit['note']}」({hit['date']})")
+    elif plat.cancel_query:
+        print("\n🚫 取消掃描：無已開單被取消")
+
     print("\n（dry-run 完成：未寫入 Ragic、未更動信箱）")
 
 

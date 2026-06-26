@@ -19,14 +19,16 @@ class Shopee(BasePlatform):
     # 涵蓋兩種帶明細的訂單信：貨到付款確認、以及（一般付款的明細在）出貨提醒。
     # 同一訂單可能兩封都收到 → 以訂單號去重（reconcile 內處理）。
     sender_query = "from:shopee.tw (貨到付款訂單 OR 準時出貨)"
+    cancel_query = "from:shopee.tw subject:取消"
     customer = "蝦皮"
     customer_code = "C-00038"
     order_type = "蝦皮"
     has_detail = True
 
     def ragic_note(self, order):
-        """蝦皮備註存買家帳號（與現有人工單一致）。"""
-        return order.buyer
+        """蝦皮備註：買家在前（出貨辨識、不可刪）＋訂單號（系統開單後可精準防重複）。
+        歷史人工單只有買家；系統開的單會是「買家 訂單號」。"""
+        return f"{order.buyer} {order.order_no}".strip()
 
     def parse_order(self, subject: str, body: str):
         # 訂單號優先從內文（兩種信都有），退而從主旨
@@ -60,19 +62,28 @@ class Shopee(BasePlatform):
                       pay_method="貨到付款" if cod else "一般付款",
                       pay_status="未付款" if cod else "已付款")
 
+    def parse_cancel(self, subject: str, body: str):
+        """蝦皮取消信主旨：「訂單 #260414RP2H7VUP 被買家 est934011 取消」。"""
+        m = re.search(r"訂單\s*#?([A-Z0-9]{8,})\s*被買家\s*(\S+?)\s*取消", subject)
+        return (m.group(1), m.group(2)) if m else None
+
     def is_existing(self, order, ragic_orders):
-        """蝦皮備註=買家帳號（無訂單號）→ 同買家、且(同日 或 同總額) 即視為已開。
-        加總額當第二把鑰匙，避免人工在非下單日開單造成日期對不上而誤判漏開。"""
+        """先用訂單號精準比對（系統開的單備註含訂單號）；歷史人工單只有買家，
+        退而用 買家 +（同日 OR 同總額）。"""
         od = re.sub(r"\D", "", order.date)[:8]
         ot = round(order.total)
         for r in ragic_orders:
-            if r["customer"] != self.customer or r["note"] != order.buyer:
+            if r["customer"] != self.customer:
                 continue
-            same_date = re.sub(r"\D", "", r["date"])[:8] == od
-            try:
-                same_total = round(float(r["total"])) == ot and ot > 0
-            except (ValueError, TypeError):
-                same_total = False
-            if same_date or same_total:
+            note = r["note"]
+            if order.order_no and order.order_no in note:   # 系統開的單，精準
                 return True
+            if order.buyer and order.buyer in note:          # 歷史人工單，盡力
+                same_date = re.sub(r"\D", "", r["date"])[:8] == od
+                try:
+                    same_total = round(float(r["total"])) == ot and ot > 0
+                except (ValueError, TypeError):
+                    same_total = False
+                if same_date or same_total:
+                    return True
         return False
