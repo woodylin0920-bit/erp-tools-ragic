@@ -377,9 +377,26 @@ def find_customer(customers: list, store_code: str, client_code: str = "") -> Op
 
 # ── 商品比對 ─────────────────────────────────────────────────
 
+def _mid_pack_size(matches) -> Optional[int]:
+    """從同條碼的多規格中找出「中盒/端盒」的每盒入數（pcs）。找不到回 None。"""
+    for m in matches:
+        unit = str(m.get("unit", ""))
+        if "中盒" in unit or "端盒" in unit:
+            try:
+                n = int(float(m["spec"]))
+                if n > 1:
+                    return n
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
 def resolve_items(order_items, price_index: dict, auto_unit_spec: bool = False) -> list:
     """
     auto_unit_spec=True：數量單位為「個/盒」時自動選 spec=1（LE 格式適用）
+
+    另外：TRU 等以 PCS 下單的格式，若某 SKU 的 PCS 無法整除「中盒」入數，
+    通常是客戶填錯，會在該項標記 box_note，最後寫進訂單內部備注提醒人工確認。
     """
     resolved = []
     for item in order_items:
@@ -432,6 +449,15 @@ def resolve_items(order_items, price_index: dict, auto_unit_spec: bool = False) 
                 ).ask()
                 product, final_qty = viable[choices.index(sel)]
 
+        # 檢查 PCS 是否為整數中盒（僅對非 auto_unit_spec 的格式，如 TRU）。
+        # 不整除多半是客戶填錯數量 → 標記，稍後寫入訂單內部備注提醒確認。
+        box_note = ""
+        if not auto_unit_spec:
+            mid = _mid_pack_size(matches)
+            if mid and item.quantity % mid != 0:
+                box_note = f"{product['product_name']} {int(item.quantity)}pcs 非整中盒（{mid}個/中盒），請與客戶確認數量"
+                console.print(f"[#FF7700]⚠ {box_note}[/#FF7700]")
+
         resolved.append({
             "product_code": product["product_code"],
             "product_name": product["product_name"],
@@ -440,6 +466,7 @@ def resolve_items(order_items, price_index: dict, auto_unit_spec: bool = False) 
             "unit_price":   override_price if override_price else product["price"],
             "quantity":     final_qty,
             "amount":       float((Decimal(str(override_price if override_price else product["price"])) * Decimal(str(final_qty))).quantize(Decimal("0.01"), ROUND_HALF_UP)),
+            "box_note":     box_note,
         })
     return resolved
 
@@ -548,6 +575,15 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
     tax_amount  = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"), ROUND_HALF_UP) if tax_rate == "5%" else Decimal("0")
     total       = subtotal + tax_amount + Decimal(str(shipping_fee))
 
+    # 非整中盒提醒：彙整各項 box_note，附加進內部備注（人工確認用，不印給客戶）。
+    box_notes = [it.get("box_note") for it in resolved if it.get("box_note")]
+    internal_parts = ["【程式建單】"]
+    if internal_notes:
+        internal_parts.append(internal_notes)
+    if box_notes:
+        internal_parts.append("⚠數量待確認：" + "；".join(box_notes))
+    internal_full = " ".join(internal_parts)
+
     return {
         "3000812": order_type,               # 訂單單別
         "3000813": today,                    # 訂單日期
@@ -562,7 +598,7 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
         "3000839": float(total),             # 總金額(含稅)
         "3000840": notes,                    # 備註
         "1000065": commission,               # 業務分潤
-        "1000074": f"【AI建單】 {internal_notes}".strip() if internal_notes else "【AI建單】",  # 內部備注
+        "1000074": internal_full,            # 內部備注（含非整中盒提醒）
         "3000845": now,                      # 建檔日期時間
         "3000847": now,                      # 最後修改日期時間
         ORDER_ITEMS_SUBTABLE_KEY: subtable,

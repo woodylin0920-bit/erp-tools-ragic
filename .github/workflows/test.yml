@@ -33,4 +33,11 @@ jobs:
           venv\Scripts\activate
           python -m py_compile app/ragic_upload.py
           python -m py_compile app/parsers/template_parser.py
+          python -m py_compile app/parsers/tru_parser.py
+          python -m py_compile app/parsers/le_parser.py
           echo "Syntax OK"
+
+      - name: Parser regression tests
+        run: |
+          venv\Scripts\activate
+          python tests/test_parsers.py
