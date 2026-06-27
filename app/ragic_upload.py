@@ -1219,23 +1219,22 @@ def run_create_outbound_order(args):
     manual = [p for p in break_plan if p["status"] == "manual" and max(0, p["need"] - p["have"]) > 0]
     issues = [p for p in break_plan if p["status"] in ("parent_short", "no_parent", "no_stock")]
     if break_plan:
-        console.print("[#B0A898]── 單盒不足，拆盒處理（整中盒自動／其餘人工）──[/#B0A898]")
+        console.print("[#B0A898]── 出貨拆盒（客戶下 pcs、實出中盒，拆中盒扣帳）──[/#B0A898]")
         for p in auto:
-            console.print(f"  [#5A9A4A]{p['prod']}[/#5A9A4A] {p['name'][:8]}(單盒)   需 {p['need']} ｜ 散單盒 {p['have']}（保留）")
-            console.print(f"     → 拆 {p['parent']} 中盒 ×{p['boxes']}   ⇒ 中盒 {p['parent_qty']}→{p['parent_qty'] - p['boxes']}、單盒 +{p['gain']}")
+            console.print(f"  [#5A9A4A]{p['prod']}[/#5A9A4A] {p['name'][:9]}   客戶 {p['need']} → 拆 {p['parent']} 中盒 ×{p['boxes']}"
+                          f"   （中盒 {p['parent_qty']}→{p['parent_qty'] - p['boxes']}）")
         for p in manual:
-            short = max(0, p["need"] - p["have"])
-            console.print(f"  [#FF7700]⚠ {p['prod']} {p['name'][:8]}(單盒) 需{p['need']}非整中盒：散單盒{p['have']}不足{short}"
-                          f" → 請人員拆實體 {p['boxes']} 盒（不自動改庫存）[/#FF7700]")
+            console.print(f"  [#FF7700]⚠ {p['prod']} {p['name'][:9]} 客戶 {p['need']}（非整中盒）"
+                          f"→ 用散盒，不足請拆實體 {p['boxes']} 盒（不自動）[/#FF7700]")
         for p in issues:
             if p["status"] == "parent_short":
-                console.print(f"  [red]⛔ {p['prod']} 需{p['need']}，中盒{p['parent']}只有{p['parent_qty']}（需{p['boxes']}）→ 請先補中盒[/red]")
+                console.print(f"  [red]⛔ {p['prod']} 客戶{p['need']}，中盒{p['parent']}只有{p['parent_qty']}（需{p['boxes']}）→ 請先補中盒[/red]")
             else:
-                console.print(f"  [red]⛔ {p['prod']} 需{p['need']}，查無庫存或無中盒可拆 → 請人工處理[/red]")
+                console.print(f"  [red]⛔ {p['prod']} 客戶{p['need']}，查無庫存或無中盒可拆 → 請人工處理[/red]")
         if args.dry_run:
             console.print("[#FF7700]★ DRY-RUN：僅預覽拆盒，未改任何庫存[/#FF7700]")
         elif auto:
-            if questionary.confirm(f"確認自動拆盒（{len(auto)} 項整中盒）？", default=True).ask():
+            if questionary.confirm(f"確認拆盒（{len(auto)} 項）？", default=True).ask():
                 for p in auto:
                     try:
                         ragic_patch(INVENTORY_SHEET, p["parent_rid"], {INVENTORY_QTY_CID: p["parent_qty"] - p["boxes"]})
