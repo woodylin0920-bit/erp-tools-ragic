@@ -118,6 +118,7 @@ ORDER_ITEMS_SUBTABLE_KEY    = os.getenv("ORDER_ITEMS_SUBTABLE_KEY",    "_subtabl
 OUTBOUND_ITEMS_SUBTABLE_KEY = os.getenv("OUTBOUND_ITEMS_SUBTABLE_KEY", "_subtable_3001132")  # 出庫單項目子表
 OUTBOUND_DOC_NOTE_CID  = "3001121"  # 出庫單「單據備註」（表頭）→ 自動填客戶名稱
 OUTBOUND_ROW_NOTE_CID  = "3001128"  # 出庫單子表「備註」（每列）→ 一律填國際條碼
+INVENTORY_QTY_CID      = "3001107"  # 倉庫庫存 20008「數量」→ 自動拆盒時直接改
 
 # 客戶尚未建檔時使用的預留客戶
 UNREGISTERED_CUSTOMER = {"code": "C-00000", "name": "000尚未建檔", "address": ""}
@@ -341,6 +342,87 @@ def load_price_index() -> Dict[str, list]:
 
 
 _stock_cache: Dict[str, Dict[str, float]] = {}
+
+
+def _to_int(x, default: int = 0) -> int:
+    """容錯轉整數：吃全形數字、小數、空值。"""
+    s = str(x).strip().translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+    try:
+        return int(float(s))
+    except (ValueError, TypeError):
+        return default
+
+
+def compute_break_plan(need: Dict[str, float], inventory: dict, warehouse_code: str) -> list:
+    """自動拆盒計畫（唯讀，不寫入）。
+
+    need = {商品編號: 需求數量}；inventory = 20008 全表 {rid: rec}。
+    規格 = 每盒入數（單盒1、中盒N、箱M）。同家族＝去掉末碼（單盒1/中盒2/箱3）。
+
+    規則（重點）：
+    - 我們批發一律「中盒出貨」，單盒庫存本來就不足、且現有散單盒不參與計算。
+      → 單盒線(規格=1) 一律拆 ⌈需求 ÷ 入數⌉ 個中盒，**不扣現有散單盒**（散的原封保留）。
+    - 中盒以上的線：庫存夠就不拆；不夠才從更上一級補差額。
+    回傳每筆含 status：ok（可拆）／parent_short（上級不夠）／no_parent（無上級可拆）／
+    no_stock（查無庫存記錄）；exact=False 表示需求非整中盒（客戶可能填錯，提醒人工）。
+    """
+    detail = {}
+    for rid, rec in inventory.items():
+        if str(rec.get("倉庫代碼", "")).strip() != warehouse_code:
+            continue
+        prod = str(rec.get("商品編號", "")).strip()
+        if not prod:
+            continue
+        detail[prod] = {
+            "spec": _to_int(rec.get("規格", 1), 1) or 1,
+            "qty":  _to_int(rec.get("數量", 0), 0),
+            "rid":  rid,
+            "code": str(rec.get("庫存編號", "")).strip(),
+            "name": str(rec.get("商品名稱", "")).strip(),
+        }
+
+    plan = []
+    for prod, q in need.items():
+        q = int(q)
+        d = detail.get(prod)
+        if not d:
+            plan.append({"prod": prod, "name": "", "need": q, "have": 0,
+                         "status": "no_stock"})
+            continue
+        if d["spec"] != 1:
+            continue  # 中盒（含以上）線：客戶用中盒下單，直接扣、不進拆盒清單
+        # 以下都是「單盒線」
+        fam = prod[:-1]
+        parents = sorted(
+            [(p, detail[p]) for p in detail
+             if p != prod and p[:-1] == fam and detail[p]["spec"] > d["spec"]],
+            key=lambda kv: kv[1]["spec"])
+        if not parents:
+            if d["qty"] >= q:
+                continue  # 沒上級可拆、但散單盒剛好夠 → 不用處理
+            plan.append({"prod": prod, "name": d["name"], "need": q,
+                         "have": d["qty"], "status": "no_parent"})
+            continue
+        pcode, pd = parents[0]  # 取最接近的上一級中盒
+        ratio = pd["spec"]      # 單盒規格=1，故入數=中盒規格
+        exact = (q % ratio == 0)
+        if exact:
+            # 整中盒＝批發中盒出貨：一律拆 需求÷入數，現有散單盒不算（保留）
+            boxes = q // ratio
+            status = "ok" if pd["qty"] >= boxes else "parent_short"
+        else:
+            # 非整中盒＝零售或客戶填錯：用現有散單盒，不夠才提醒拆實體（不自動拆）
+            shortage = max(0, q - d["qty"])
+            boxes = -(-shortage // ratio) if shortage else 0
+            status = "manual"
+        plan.append({
+            "prod": prod, "name": d["name"], "need": q, "have": d["qty"],
+            "parent": pcode, "parent_name": pd["name"], "ratio": ratio, "boxes": boxes,
+            "gain": boxes * ratio, "unit_rid": d["rid"], "unit_qty": d["qty"],
+            "parent_rid": pd["rid"], "parent_qty": pd["qty"],
+            "exact": exact, "status": status,
+        })
+    return plan
 
 
 def build_code_to_barcode(price_index: Dict[str, list]) -> Dict[str, list]:
@@ -1000,6 +1082,9 @@ def run_create_delivery_order(args):
 
 def run_create_outbound_order(args):
     """出貨單拋轉建立出庫單，並自動補填子表的倉庫代碼和庫存編號。"""
+    console.print("[#B0A898]── 建立出庫單（出貨單拋轉）──[/#B0A898]")
+    console.print("[dim]本流程會自動：①補倉庫/庫存編號 ②單據備註=客戶名稱、明細備註=【EAN】條碼[/dim]")
+    console.print("[dim]           ③偵測單盒不足→整中盒自動拆盒(你確認後才改庫存)、零頭只提醒拆實體[/dim]")
     # 載入出貨單
     with console.status("[#B0A898]載入出貨單資料...[/#B0A898]", spinner="dots"):
         records = ragic_get(DELIVERY_ORDER_SHEET)
@@ -1120,6 +1205,48 @@ def run_create_outbound_order(args):
                 step = 1
                 continue
             break
+
+    # ── 自動拆盒（中盒→單盒）：拋轉「之前」先補足單盒，否則出庫扣單盒會不足 ──
+    # 整中盒(批發中盒出貨)→自動拆、散單盒不動；非整中盒(零售/填錯)→只提醒拆實體；中盒線不拆。
+    need_qty: Dict[str, float] = {}
+    for c in selected_records:
+        for row in records[c["id"]].get(DELIVERY_SUBTABLE, {}).values():
+            prod = str(row.get("商品編號*", "") or row.get("商品編號", "")).strip()
+            if prod:
+                need_qty[prod] = need_qty.get(prod, 0) + _to_int(row.get("數量", 0), 0)
+    break_plan = compute_break_plan(need_qty, inventory, warehouse_code)
+    auto   = [p for p in break_plan if p["status"] == "ok"]
+    manual = [p for p in break_plan if p["status"] == "manual" and max(0, p["need"] - p["have"]) > 0]
+    issues = [p for p in break_plan if p["status"] in ("parent_short", "no_parent", "no_stock")]
+    if break_plan:
+        console.print("[#B0A898]── 單盒不足，拆盒處理（整中盒自動／其餘人工）──[/#B0A898]")
+        for p in auto:
+            console.print(f"  [#5A9A4A]{p['prod']}[/#5A9A4A] {p['name'][:8]}(單盒)   需 {p['need']} ｜ 散單盒 {p['have']}（保留）")
+            console.print(f"     → 拆 {p['parent']} 中盒 ×{p['boxes']}   ⇒ 中盒 {p['parent_qty']}→{p['parent_qty'] - p['boxes']}、單盒 +{p['gain']}")
+        for p in manual:
+            short = max(0, p["need"] - p["have"])
+            console.print(f"  [#FF7700]⚠ {p['prod']} {p['name'][:8]}(單盒) 需{p['need']}非整中盒：散單盒{p['have']}不足{short}"
+                          f" → 請人員拆實體 {p['boxes']} 盒（不自動改庫存）[/#FF7700]")
+        for p in issues:
+            if p["status"] == "parent_short":
+                console.print(f"  [red]⛔ {p['prod']} 需{p['need']}，中盒{p['parent']}只有{p['parent_qty']}（需{p['boxes']}）→ 請先補中盒[/red]")
+            else:
+                console.print(f"  [red]⛔ {p['prod']} 需{p['need']}，查無庫存或無中盒可拆 → 請人工處理[/red]")
+        if args.dry_run:
+            console.print("[#FF7700]★ DRY-RUN：僅預覽拆盒，未改任何庫存[/#FF7700]")
+        elif auto:
+            if questionary.confirm(f"確認自動拆盒（{len(auto)} 項整中盒）？", default=True).ask():
+                for p in auto:
+                    try:
+                        ragic_patch(INVENTORY_SHEET, p["parent_rid"], {INVENTORY_QTY_CID: p["parent_qty"] - p["boxes"]})
+                        ragic_patch(INVENTORY_SHEET, p["unit_rid"],   {INVENTORY_QTY_CID: p["unit_qty"] + p["gain"]})
+                        console.print(f"[#5A9A4A]✓ 拆盒 {p['prod']}：{p['parent']} 中盒 -{p['boxes']}、單盒 +{p['gain']}[/#5A9A4A]")
+                        logging.info("拆盒 wh=%s prod=%s boxes=%s gain=%s", warehouse_code, p["prod"], p["boxes"], p["gain"])
+                    except Exception as e:
+                        console.print(f"[red]⚠ 拆盒 {p['prod']} 失敗：{_friendly_error(str(e))}[/red]")
+                        logging.error("拆盒失敗 prod=%s error=%s", p["prod"], e)
+            else:
+                console.print("[#FF7700]略過自動拆盒（你可手動處理後再繼續）[/#FF7700]")
 
     with console.status("[#B0A898]取得按鈕設定...[/#B0A898]", spinner="dots"):
         button_id = ragic_get_action_button_id(DELIVERY_ORDER_SHEET, "建立出庫單")
