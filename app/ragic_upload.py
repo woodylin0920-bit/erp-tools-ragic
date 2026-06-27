@@ -1233,22 +1233,30 @@ def run_create_outbound_order(args):
     auto   = [p for p in break_plan if p["status"] == "ok"]
     manual = [p for p in break_plan if p["status"] == "manual" and max(0, p["need"] - p["have"]) > 0]
     issues = [p for p in break_plan if p["status"] in ("parent_short", "no_parent", "no_stock")]
-    if auto or manual or issues:
+    if selected_records:
         console.print("[#B0A898]── 出貨拆盒（客戶下 pcs、實出中盒，拆中盒扣帳）──[/#B0A898]")
-        # 依「出貨單」分組顯示，行政一眼知道哪一單要拆
-        order_seq = []
-        for p in (auto + manual + issues):
-            if p["label"] not in order_seq:
-                order_seq.append(p["label"])
-        for lab in order_seq:
+        # 每張選到的單都列：要拆的列明細，不用拆的標「✓ 無需拆盒」讓人安心
+        all_labels = []
+        for c in selected_records:
+            rec = records[c["id"]]
+            lab = f"{rec.get('出貨單號', c['id'])} {rec.get('客戶名稱', '')}".strip()
+            if lab not in all_labels:
+                all_labels.append(lab)
+        for lab in all_labels:
+            a = [x for x in auto if x["label"] == lab]
+            m = [x for x in manual if x["label"] == lab]
+            i = [x for x in issues if x["label"] == lab]
             console.print(f"  [bold]【{lab}】[/bold]")
-            for p in [x for x in auto if x["label"] == lab]:
+            if not (a or m or i):
+                console.print("     [#5A9A4A]✓ 無需拆盒[/#5A9A4A]")
+                continue
+            for p in a:
                 console.print(f"     [#5A9A4A]{p['prod']}[/#5A9A4A] {p['name'][:9]}  客戶 {p['need']} → 拆 {p['parent']} 中盒 ×{p['boxes']}"
                               f"（中盒 {p['parent_qty']}→{p['parent_qty'] - p['boxes']}）")
-            for p in [x for x in manual if x["label"] == lab]:
+            for p in m:
                 console.print(f"     [#FF7700]⚠ {p['prod']} {p['name'][:9]} 客戶 {p['need']}（非整中盒）"
                               f"→ 用散盒，不足請拆實體 {p['boxes']} 盒（不自動）[/#FF7700]")
-            for p in [x for x in issues if x["label"] == lab]:
+            for p in i:
                 if p["status"] == "parent_short":
                     console.print(f"     [red]⛔ {p['prod']} 客戶{p['need']}，中盒{p['parent']}剩{p.get('avail', p.get('parent_qty'))}不夠（需{p['boxes']}）→ 請先補中盒[/red]")
                 else:
