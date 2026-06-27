@@ -353,18 +353,20 @@ def _to_int(x, default: int = 0) -> int:
         return default
 
 
-def compute_break_plan(need: Dict[str, float], inventory: dict, warehouse_code: str) -> list:
+def compute_break_plan(line_needs: list, inventory: dict, warehouse_code: str) -> list:
     """自動拆盒計畫（唯讀，不寫入）。
 
-    need = {商品編號: 需求數量}；inventory = 20008 全表 {rid: rec}。
-    規格 = 每盒入數（單盒1、中盒N、箱M）。同家族＝去掉末碼（單盒1/中盒2/箱3）。
+    line_needs = [(來源標籤, 商品編號, 需求數量), ...]，**逐出貨單明細分開**分類，
+    不同出貨單/客戶的同商品不會被合併（避免 TRU 18 + 蝦皮 1 = 19 被誤判成非整中盒）。
+    inventory = 20008 全表 {rid: rec}。規格 = 每盒入數（單盒1、中盒N、箱M）；
+    同家族＝去掉商品編號末碼（單盒1/中盒2/箱3）。
 
-    規則（重點）：
-    - 我們批發一律「中盒出貨」，單盒庫存本來就不足、且現有散單盒不參與計算。
-      → 單盒線(規格=1) 一律拆 ⌈需求 ÷ 入數⌉ 個中盒，**不扣現有散單盒**（散的原封保留）。
-    - 中盒以上的線：庫存夠就不拆；不夠才從更上一級補差額。
-    回傳每筆含 status：ok（可拆）／parent_short（上級不夠）／no_parent（無上級可拆）／
-    no_stock（查無庫存記錄）；exact=False 表示需求非整中盒（客戶可能填錯，提醒人工）。
+    規則：
+    - 單盒線(規格=1)、需求整中盒 → 拆 需求÷入數 個中盒，現有散單盒不算（保留）。
+    - 單盒線、非整中盒 → 零售/填錯：用現有散單盒，不夠才提醒拆實體（不自動）。
+    - 中盒以上線 → 直接扣、不進清單。
+    - 多單同時拆同一中盒 → 累計扣，逐單檢查中盒是否還夠。
+    回傳每筆含 label（哪一單）、status：ok／parent_short／no_parent／no_stock／manual。
     """
     detail = {}
     for rid, rec in inventory.items():
@@ -381,17 +383,17 @@ def compute_break_plan(need: Dict[str, float], inventory: dict, warehouse_code: 
             "name": str(rec.get("商品名稱", "")).strip(),
         }
 
+    consumed = {}  # 中盒商品編號 → 本批已規劃拆出的盒數（跨單累計，檢查中盒夠不夠）
     plan = []
-    for prod, q in need.items():
+    for label, prod, q in line_needs:
         q = int(q)
         d = detail.get(prod)
         if not d:
-            plan.append({"prod": prod, "name": "", "need": q, "have": 0,
-                         "status": "no_stock"})
+            plan.append({"label": label, "prod": prod, "name": "", "need": q,
+                         "have": 0, "status": "no_stock"})
             continue
         if d["spec"] != 1:
             continue  # 中盒（含以上）線：客戶用中盒下單，直接扣、不進拆盒清單
-        # 以下都是「單盒線」
         fam = prod[:-1]
         parents = sorted(
             [(p, detail[p]) for p in detail
@@ -399,29 +401,36 @@ def compute_break_plan(need: Dict[str, float], inventory: dict, warehouse_code: 
             key=lambda kv: kv[1]["spec"])
         if not parents:
             if d["qty"] >= q:
-                continue  # 沒上級可拆、但散單盒剛好夠 → 不用處理
-            plan.append({"prod": prod, "name": d["name"], "need": q,
-                         "have": d["qty"], "status": "no_parent"})
+                continue
+            plan.append({"label": label, "prod": prod, "name": d["name"],
+                         "need": q, "have": d["qty"], "status": "no_parent"})
             continue
         pcode, pd = parents[0]  # 取最接近的上一級中盒
         ratio = pd["spec"]      # 單盒規格=1，故入數=中盒規格
         exact = (q % ratio == 0)
+        entry = {
+            "label": label, "prod": prod, "name": d["name"], "need": q, "have": d["qty"],
+            "parent": pcode, "parent_name": pd["name"], "ratio": ratio,
+            "unit_rid": d["rid"], "unit_qty": d["qty"],
+            "parent_rid": pd["rid"], "parent_qty": pd["qty"], "exact": exact,
+        }
         if exact:
-            # 整中盒＝批發中盒出貨：一律拆 需求÷入數，現有散單盒不算（保留）
             boxes = q // ratio
-            status = "ok" if pd["qty"] >= boxes else "parent_short"
+            avail = pd["qty"] - consumed.get(pcode, 0)  # 扣掉本批前面幾單已規劃拆的
+            entry["boxes"] = boxes
+            entry["gain"] = boxes * ratio
+            if avail >= boxes:
+                entry["status"] = "ok"
+                consumed[pcode] = consumed.get(pcode, 0) + boxes
+            else:
+                entry["status"] = "parent_short"
+                entry["avail"] = avail
         else:
-            # 非整中盒＝零售或客戶填錯：用現有散單盒，不夠才提醒拆實體（不自動拆）
             shortage = max(0, q - d["qty"])
-            boxes = -(-shortage // ratio) if shortage else 0
-            status = "manual"
-        plan.append({
-            "prod": prod, "name": d["name"], "need": q, "have": d["qty"],
-            "parent": pcode, "parent_name": pd["name"], "ratio": ratio, "boxes": boxes,
-            "gain": boxes * ratio, "unit_rid": d["rid"], "unit_qty": d["qty"],
-            "parent_rid": pd["rid"], "parent_qty": pd["qty"],
-            "exact": exact, "status": status,
-        })
+            entry["boxes"] = -(-shortage // ratio) if shortage else 0
+            entry["gain"] = entry["boxes"] * ratio
+            entry["status"] = "manual"
+        plan.append(entry)
     return plan
 
 
@@ -1207,43 +1216,65 @@ def run_create_outbound_order(args):
             break
 
     # ── 自動拆盒（中盒→單盒）：拋轉「之前」先補足單盒，否則出庫扣單盒會不足 ──
-    # 整中盒(批發中盒出貨)→自動拆、散單盒不動；非整中盒(零售/填錯)→只提醒拆實體；中盒線不拆。
-    need_qty: Dict[str, float] = {}
+    # 逐出貨單明細分開判（同商品跨單不合併）。整中盒→自動拆、散單盒不動；
+    # 非整中盒→零售/填錯只提醒拆實體；中盒線不拆。多單拆同中盒會累計檢查。
+    line_needs = []
     for c in selected_records:
-        for row in records[c["id"]].get(DELIVERY_SUBTABLE, {}).values():
+        rec = records[c["id"]]
+        label = f"{rec.get('出貨單號', c['id'])} {rec.get('客戶名稱', '')}".strip()
+        agg = {}
+        for row in rec.get(DELIVERY_SUBTABLE, {}).values():
             prod = str(row.get("商品編號*", "") or row.get("商品編號", "")).strip()
             if prod:
-                need_qty[prod] = need_qty.get(prod, 0) + _to_int(row.get("數量", 0), 0)
-    break_plan = compute_break_plan(need_qty, inventory, warehouse_code)
+                agg[prod] = agg.get(prod, 0) + _to_int(row.get("數量", 0), 0)
+        for prod, q in agg.items():
+            line_needs.append((label, prod, q))
+    break_plan = compute_break_plan(line_needs, inventory, warehouse_code)
     auto   = [p for p in break_plan if p["status"] == "ok"]
     manual = [p for p in break_plan if p["status"] == "manual" and max(0, p["need"] - p["have"]) > 0]
     issues = [p for p in break_plan if p["status"] in ("parent_short", "no_parent", "no_stock")]
-    if break_plan:
+    if auto or manual or issues:
         console.print("[#B0A898]── 出貨拆盒（客戶下 pcs、實出中盒，拆中盒扣帳）──[/#B0A898]")
+        # 依「出貨單」分組顯示，行政一眼知道哪一單要拆
+        order_seq = []
+        for p in (auto + manual + issues):
+            if p["label"] not in order_seq:
+                order_seq.append(p["label"])
+        for lab in order_seq:
+            console.print(f"  [bold]【{lab}】[/bold]")
+            for p in [x for x in auto if x["label"] == lab]:
+                console.print(f"     [#5A9A4A]{p['prod']}[/#5A9A4A] {p['name'][:9]}  客戶 {p['need']} → 拆 {p['parent']} 中盒 ×{p['boxes']}"
+                              f"（中盒 {p['parent_qty']}→{p['parent_qty'] - p['boxes']}）")
+            for p in [x for x in manual if x["label"] == lab]:
+                console.print(f"     [#FF7700]⚠ {p['prod']} {p['name'][:9]} 客戶 {p['need']}（非整中盒）"
+                              f"→ 用散盒，不足請拆實體 {p['boxes']} 盒（不自動）[/#FF7700]")
+            for p in [x for x in issues if x["label"] == lab]:
+                if p["status"] == "parent_short":
+                    console.print(f"     [red]⛔ {p['prod']} 客戶{p['need']}，中盒{p['parent']}剩{p.get('avail', p.get('parent_qty'))}不夠（需{p['boxes']}）→ 請先補中盒[/red]")
+                else:
+                    console.print(f"     [red]⛔ {p['prod']} 客戶{p['need']}，查無庫存或無中盒可拆 → 請人工處理[/red]")
+        # 同一中盒跨多單只 PATCH 一次（中盒扣總盒數、單盒加總）
+        merged = {}
         for p in auto:
-            console.print(f"  [#5A9A4A]{p['prod']}[/#5A9A4A] {p['name'][:9]}   客戶 {p['need']} → 拆 {p['parent']} 中盒 ×{p['boxes']}"
-                          f"   （中盒 {p['parent_qty']}→{p['parent_qty'] - p['boxes']}）")
-        for p in manual:
-            console.print(f"  [#FF7700]⚠ {p['prod']} {p['name'][:9]} 客戶 {p['need']}（非整中盒）"
-                          f"→ 用散盒，不足請拆實體 {p['boxes']} 盒（不自動）[/#FF7700]")
-        for p in issues:
-            if p["status"] == "parent_short":
-                console.print(f"  [red]⛔ {p['prod']} 客戶{p['need']}，中盒{p['parent']}只有{p['parent_qty']}（需{p['boxes']}）→ 請先補中盒[/red]")
-            else:
-                console.print(f"  [red]⛔ {p['prod']} 客戶{p['need']}，查無庫存或無中盒可拆 → 請人工處理[/red]")
+            m = merged.setdefault(p["parent"], {
+                "parent_rid": p["parent_rid"], "parent_qty": p["parent_qty"],
+                "unit_rid": p["unit_rid"], "unit_qty": p["unit_qty"],
+                "boxes": 0, "gain": 0, "unit": p["prod"]})
+            m["boxes"] += p["boxes"]
+            m["gain"] += p["gain"]
         if args.dry_run:
             console.print("[#FF7700]★ DRY-RUN：僅預覽拆盒，未改任何庫存[/#FF7700]")
-        elif auto:
-            if questionary.confirm(f"確認拆盒（{len(auto)} 項）？", default=True).ask():
-                for p in auto:
+        elif merged:
+            if questionary.confirm(f"確認拆盒（{len(merged)} 種中盒、共 {sum(m['boxes'] for m in merged.values())} 盒）？", default=True).ask():
+                for pc, m in merged.items():
                     try:
-                        ragic_patch(INVENTORY_SHEET, p["parent_rid"], {INVENTORY_QTY_CID: p["parent_qty"] - p["boxes"]})
-                        ragic_patch(INVENTORY_SHEET, p["unit_rid"],   {INVENTORY_QTY_CID: p["unit_qty"] + p["gain"]})
-                        console.print(f"[#5A9A4A]✓ 拆盒 {p['prod']}：{p['parent']} 中盒 -{p['boxes']}、單盒 +{p['gain']}[/#5A9A4A]")
-                        logging.info("拆盒 wh=%s prod=%s boxes=%s gain=%s", warehouse_code, p["prod"], p["boxes"], p["gain"])
+                        ragic_patch(INVENTORY_SHEET, m["parent_rid"], {INVENTORY_QTY_CID: m["parent_qty"] - m["boxes"]})
+                        ragic_patch(INVENTORY_SHEET, m["unit_rid"],   {INVENTORY_QTY_CID: m["unit_qty"] + m["gain"]})
+                        console.print(f"[#5A9A4A]✓ 拆盒 {pc} 中盒 -{m['boxes']}、{m['unit']} 單盒 +{m['gain']}[/#5A9A4A]")
+                        logging.info("拆盒 wh=%s 中盒=%s boxes=%s gain=%s", warehouse_code, pc, m["boxes"], m["gain"])
                     except Exception as e:
-                        console.print(f"[red]⚠ 拆盒 {p['prod']} 失敗：{_friendly_error(str(e))}[/red]")
-                        logging.error("拆盒失敗 prod=%s error=%s", p["prod"], e)
+                        console.print(f"[red]⚠ 拆盒 {pc} 失敗：{_friendly_error(str(e))}[/red]")
+                        logging.error("拆盒失敗 中盒=%s error=%s", pc, e)
             else:
                 console.print("[#FF7700]略過自動拆盒（你可手動處理後再繼續）[/#FF7700]")
 
