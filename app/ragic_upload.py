@@ -1083,8 +1083,6 @@ def run_create_delivery_order(args):
 def run_create_outbound_order(args):
     """出貨單拋轉建立出庫單，並自動補填子表的倉庫代碼和庫存編號。"""
     console.print("[#B0A898]── 建立出庫單（出貨單拋轉）──[/#B0A898]")
-    console.print("[dim]本流程會自動：①補倉庫/庫存編號 ②單據備註=客戶名稱、明細備註=【EAN】條碼[/dim]")
-    console.print("[dim]           ③偵測單盒不足→整中盒自動拆盒(你確認後才改庫存)、零頭只提醒拆實體[/dim]")
     # 載入出貨單
     with console.status("[#B0A898]載入出貨單資料...[/#B0A898]", spinner="dots"):
         records = ragic_get(DELIVERY_ORDER_SHEET)
@@ -1200,6 +1198,8 @@ def run_create_outbound_order(args):
             for prod, inv in prod_inv_map.items():
                 if inv:
                     console.print(f"  {prod} → {inv}")
+            console.print("[dim]  拋轉後自動補：倉庫/庫存編號、單據備註=客戶名稱、明細備註=【EAN】條碼[/dim]")
+            console.print("[dim]  並偵測出貨拆盒：整中盒會再請你確認後才改庫存、零頭只提醒拆實體[/dim]")
             ok = questionary.confirm("確認執行？", default=True).ask()
             if not ok:
                 step = 1
