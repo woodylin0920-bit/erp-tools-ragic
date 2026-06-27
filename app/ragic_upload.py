@@ -116,6 +116,8 @@ STOCK_CHECK_WAREHOUSE = os.getenv("STOCK_CHECK_WAREHOUSE", "TW01")  # 開單前�
 
 ORDER_ITEMS_SUBTABLE_KEY    = os.getenv("ORDER_ITEMS_SUBTABLE_KEY",    "_subtable_3000842")  # 銷貨單訂購項目子表
 OUTBOUND_ITEMS_SUBTABLE_KEY = os.getenv("OUTBOUND_ITEMS_SUBTABLE_KEY", "_subtable_3001132")  # 出庫單項目子表
+OUTBOUND_DOC_NOTE_CID  = "3001121"  # 出庫單「單據備註」（表頭）→ 自動填客戶名稱
+OUTBOUND_ROW_NOTE_CID  = "3001128"  # 出庫單子表「備註」（每列）→ 一律填國際條碼
 
 # 客戶尚未建檔時使用的預留客戶
 UNREGISTERED_CUSTOMER = {"code": "C-00000", "name": "000尚未建檔", "address": ""}
@@ -339,6 +341,20 @@ def load_price_index() -> Dict[str, list]:
 
 
 _stock_cache: Dict[str, Dict[str, float]] = {}
+
+
+def build_code_to_barcode(price_index: Dict[str, list]) -> Dict[str, list]:
+    """商品編號（如 PWF011）→ 國際條碼清單。一碼多條碼時保留多筆，呼叫端再決定。"""
+    out: Dict[str, list] = {}
+    for barcode, entries in price_index.items():
+        for e in entries:
+            base = _strip_code_suffix(str(e.get("product_code", "")))
+            if not base:
+                continue
+            lst = out.setdefault(base, [])
+            if barcode not in lst:
+                lst.append(barcode)
+    return out
 
 
 def _strip_code_suffix(code: str) -> str:
@@ -1144,6 +1160,15 @@ def run_create_outbound_order(args):
 
     console.print(f"[#5A9A4A]✓ 偵測到 {len(new_ids)} 筆新出庫單，開始補填倉庫資料...[/#5A9A4A]")
 
+    # ── 備註自動填寫準備 ───────────────────────────────────────
+    # 單據備註(表頭)=客戶名稱；子表每列備註=國際條碼（一律，不分客戶）。
+    # 客戶名稱要從來源出貨單帶（出庫單表頭沒有客戶名稱欄），用出貨單號對回。
+    shipno_to_cust = {
+        str(records[rid].get("出貨單號", "")).strip(): str(records[rid].get("客戶名稱", "")).strip()
+        for rid in record_ids
+    }
+    code_to_barcode = build_code_to_barcode(load_price_index())
+
     patched = 0
     for oid in new_ids:
         rec = after_records[oid]
@@ -1152,28 +1177,43 @@ def run_create_outbound_order(args):
             console.print(f"[#FF7700]⚠ 出庫單 {oid} 沒有子表項目，跳過[/#FF7700]")
             continue
 
-        # 填倉庫代碼、庫存編號（用 CID，必填欄位用欄位名稱會被 Ragic validation 擋掉）
-        # 注意：倉庫名稱(3001125)為唯讀，填入倉庫代碼後 Ragic 自動帶入，不需手動寫
+        ship_no = str(rec.get("出貨單號", "")).strip()
+        customer = shipno_to_cust.get(ship_no, "")
+
+        # 填倉庫代碼、庫存編號（用 CID，必填欄位用欄位名稱會被 Ragic validation 擋掉）＋
+        # 子表備註=國際條碼。倉庫名稱(3001125)唯讀，填代碼後 Ragic 自動帶入。
         updated_rows = {}
         for row_id, row in subtable.items():
             if str(row_id).startswith("_"):
                 continue
             prod = str(row.get("商品編號", "")).strip()
+            cell = {}
             inv_code = prod_inv_map.get(prod, "")
-            if not inv_code:
+            if inv_code:
+                cell["3001124"] = warehouse_code  # 倉庫代碼
+                cell["3001126"] = inv_code         # 庫存編號
+            else:
                 console.print(f"[#FF7700]⚠ 出庫單 {oid} 商品 {prod} 無庫存編號，該列倉庫欄位略過[/#FF7700]")
                 logging.warning("出庫單 %s 商品 %s 無庫存編號，略過", oid, prod)
-                continue
-            updated_rows[str(row_id)] = {
-                "3001124": warehouse_code,  # 倉庫代碼
-                "3001126": inv_code,        # 庫存編號
-            }
+            bars = code_to_barcode.get(prod, [])
+            if bars:
+                cell[OUTBOUND_ROW_NOTE_CID] = bars[0]  # 國際條碼
+                if len(bars) > 1:
+                    console.print(f"[#FF7700]⚠ {prod} 有多個國際條碼 {bars}，備註取 {bars[0]}[/#FF7700]")
+            else:
+                console.print(f"[#FF7700]⚠ {prod} 查無國際條碼，該列備註留空[/#FF7700]")
+            if cell:
+                updated_rows[str(row_id)] = cell
+
+        patch_body = {OUTBOUND_ITEMS_SUBTABLE_KEY: updated_rows}
+        if customer:
+            patch_body[OUTBOUND_DOC_NOTE_CID] = customer  # 單據備註=客戶名稱
 
         try:
-            ragic_patch(OUTBOUND_ORDER_SHEET, oid, {OUTBOUND_ITEMS_SUBTABLE_KEY: updated_rows})
+            ragic_patch(OUTBOUND_ORDER_SHEET, oid, patch_body)
             patched += 1
-            console.print(f"[#5A9A4A]✓ 出庫單 {oid} 補填完成（{warehouse_code}）[/#5A9A4A]")
-            logging.info("出庫單補填成功 outbound_id=%s warehouse=%s", oid, warehouse_code)
+            console.print(f"[#5A9A4A]✓ 出庫單 {oid} 補填完成（{warehouse_code}／單據備註「{customer or '-'}」＋備註國際條碼）[/#5A9A4A]")
+            logging.info("出庫單補填成功 outbound_id=%s warehouse=%s customer=%s", oid, warehouse_code, customer)
         except Exception as e:
             console.print(f"[red]⚠ 出庫單 {oid} 補填失敗：{e}[/red]")
             logging.error("出庫單補填失敗 outbound_id=%s error=%s", oid, e)
