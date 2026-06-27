@@ -1197,7 +1197,7 @@ def run_create_outbound_order(args):
                 logging.warning("出庫單 %s 商品 %s 無庫存編號，略過", oid, prod)
             bars = code_to_barcode.get(prod, [])
             if bars:
-                cell[OUTBOUND_ROW_NOTE_CID] = bars[0]  # 國際條碼
+                cell[OUTBOUND_ROW_NOTE_CID] = f"【EAN】{bars[0]}"  # 國際條碼
                 if len(bars) > 1:
                     console.print(f"[#FF7700]⚠ {prod} 有多個國際條碼 {bars}，備註取 {bars[0]}[/#FF7700]")
             else:
