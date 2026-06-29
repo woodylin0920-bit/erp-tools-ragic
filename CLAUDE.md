@@ -13,6 +13,7 @@
 主程式 `app/ragic_upload.py` 是互動式選單（questionary）。功能：
 
 - **新建銷售單**：讀客戶訂購 Excel（TRU/LE…）→ 自動開 Ragic 銷貨單
+- **批次發樣／開免費單**：新品發樣用。選單別(樣品申請/公關品/活動贈品)+組合(中文/英文/代號搜尋商品建範本，存 `app/sample_combos.json`)+客戶名單(從 20004 勾選，存 `app/sample_customer_lists.json`，兩 json 皆 gitignore 不上傳)→ 批次 POST 到 20001，單價全0、狀態未出貨。重用 `build_payload`，吃 dry-run+確認關卡。handler `run_sample_orders`
 - **建立出貨單 / 出庫單**：銷貨單→出貨單→出庫單拋轉（出庫才扣庫存）。出庫單拋轉會自動補：倉庫代碼/庫存編號、單據備註(CID 3001121)=客戶名稱[/PO#]、子表明細備註(CID 3001128)=【EAN】國際條碼；並偵測「出貨拆盒」（整中盒→拆中盒補單盒、人工確認後改 20008 數量 CID 3001107；零頭只提醒拆實體）。PO# 撈自銷貨單備註的 `PO#xxxx`（嚴格比對井號，不分客戶）
 - **匯出庫存報表**：客戶現貨表、月度庫存金額表（`app/export_inventory_value.py`）
 - **在途查詢**：採購單未到貨（`app/in_transit_query.py`）

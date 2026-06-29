@@ -120,6 +120,11 @@ OUTBOUND_DOC_NOTE_CID  = "3001121"  # 出庫單「單據備註」（表頭）→
 OUTBOUND_ROW_NOTE_CID  = "3001128"  # 出庫單子表「備註」（每列）→ 一律填國際條碼
 INVENTORY_QTY_CID      = "3001107"  # 倉庫庫存 20008「數量」→ 自動拆盒時直接改
 
+# 批次發樣：組合範本與客戶名單存本機 JSON（行政只在選單操作，不碰檔）
+SAMPLE_COMBOS_FILE   = os.path.join(os.path.dirname(__file__), "sample_combos.json")
+SAMPLE_CUSTLIST_FILE = os.path.join(os.path.dirname(__file__), "sample_customer_lists.json")
+SAMPLE_ORDER_TYPES   = ["樣品申請", "公關品", "活動贈品"]
+
 # 客戶尚未建檔時使用的預留客戶
 UNREGISTERED_CUSTOMER = {"code": "C-00000", "name": "000尚未建檔", "address": ""}
 
@@ -1775,6 +1780,203 @@ def _show_welcome():
     console.print(Rule(style="#C5A059"))
 
 
+# ── 批次發樣／開免費單 ─────────────────────────────────────────
+
+def _load_json_file(path: str) -> dict:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_json_file(path: str, data: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _flatten_products(price_index: dict) -> list:
+    """price_index {條碼:[entry...]} → 攤平成商品清單，供搜尋。每筆含 code/name/spec/unit/barcode。"""
+    out = []
+    for barcode, entries in price_index.items():
+        for e in entries:
+            out.append({
+                "code":    str(e.get("product_code", "")),
+                "name":    str(e.get("product_name", "")),
+                "spec":    e.get("spec", 1),
+                "unit":    str(e.get("unit", "")),
+                "barcode": barcode,
+            })
+    return out
+
+
+def _search_products(products: list, keyword: str) -> list:
+    """模糊比對：商品代號／名稱／條碼任一含關鍵字（大小寫不分、中英皆可）。"""
+    kw = keyword.strip().lower()
+    if not kw:
+        return []
+    return [p for p in products
+            if kw in p["code"].lower() or kw in p["name"].lower() or kw in p["barcode"].lower()]
+
+
+def _pick_sample_combo(products: list) -> Optional[list]:
+    """選或新建組合範本。回 [{code,name,qty}] 或 None（取消）。"""
+    BACK = "← 返回"
+    combos = _load_json_file(SAMPLE_COMBOS_FILE)
+    while True:
+        choices = ["【新建組合】"]
+        for name, items in combos.items():
+            summary = "、".join("{}×{}".format(it["name"][:8], it["qty"]) for it in items)
+            choices.append("{}（{}）".format(name, summary))
+        choices.append(BACK)
+        sel = _select_with_esc("請選擇樣品組合：", choices=choices)
+        if not sel or sel == BACK:
+            return None
+        if sel != "【新建組合】":
+            cname = sel.split("（")[0]
+            return combos[cname]
+        # 新建組合：搜尋商品逐項加入
+        items = []
+        while True:
+            kw = questionary.text("搜尋商品（中文/英文/代號關鍵字，留空結束）：", default="").ask()
+            if kw is None:
+                break
+            if not kw.strip():
+                if items:
+                    break
+                continue
+            hits = _search_products(products, kw)
+            if not hits:
+                console.print("[#FF7700]查無商品，換個關鍵字[/#FF7700]")
+                continue
+            opts = [f"{h['code']:<12} {h['name'][:24]}（{h['unit']}）" for h in hits[:25]] + [BACK]
+            psel = _select_with_esc(f"找到 {len(hits)} 筆，請選：", choices=opts)
+            if not psel or psel == BACK:
+                continue
+            prod = hits[opts.index(psel)]
+            qty = questionary.text(f"{prod['name'][:16]} 數量（pcs）：", default="1").ask()
+            try:
+                qn = int(float(qty))
+            except (TypeError, ValueError):
+                console.print("[#FF7700]數量需為數字，略過此項[/#FF7700]")
+                continue
+            if qn <= 0:
+                continue
+            items.append({"code": prod["code"], "name": prod["name"], "qty": qn})
+            console.print(f"[#5A9A4A]✓ 已加入 {prod['code']} ×{qn}[/#5A9A4A]")
+        if not items:
+            return None
+        console.print("[#B0A898]目前組合：[/#B0A898]")
+        for it in items:
+            console.print(f"  {it['code']:<12} {it['name'][:20]} ×{it['qty']}")
+        name = questionary.text("為這個組合命名（留空＝這次用、不存檔）：", default="").ask()
+        if name and name.strip():
+            combos[name.strip()] = items
+            _save_json_file(SAMPLE_COMBOS_FILE, combos)
+            console.print(f"[#5A9A4A]✓ 已存組合「{name.strip()}」，下次可直接套[/#5A9A4A]")
+        return items
+
+
+def _pick_sample_customers(customers: list) -> Optional[list]:
+    """選客戶：套固定名單打底 + 當次複選加減；可存新名單。回 [客戶dict] 或 None。"""
+    BACK = "← 返回"
+    lists = _load_json_file(SAMPLE_CUSTLIST_FILE)
+    by_code = {c["code"]: c for c in customers if c["code"]}
+    preset_codes = []
+    if lists:
+        sel = _select_with_esc("套用固定發樣名單？", choices=["【不套，全部手選】"] + list(lists.keys()) + [BACK])
+        if not sel:
+            return None
+        if sel != "【不套，全部手選】" and sel != BACK:
+            preset_codes = [c for c in lists[sel] if c in by_code]
+    # 複選（預設勾選名單成員）
+    name_choices = [f"{c['name']}｜{c['code']}" for c in customers if c["code"]]
+    code_by_label = {f"{c['name']}｜{c['code']}": c["code"] for c in customers if c["code"]}
+    checked = {f"{by_code[cc]['name']}｜{cc}" for cc in preset_codes}
+    picked = questionary.checkbox(
+        "勾選要發樣的客戶（空白鍵勾選、可打字搜尋、Enter 確認）：",
+        choices=[questionary.Choice(lbl, checked=(lbl in checked)) for lbl in name_choices],
+    ).ask()
+    if not picked:
+        return None
+    chosen = [by_code[code_by_label[lbl]] for lbl in picked if code_by_label.get(lbl) in by_code]
+    # 可選：存成名單
+    save = questionary.text("把這份客戶存成固定名單？（輸入名稱＝存、留空＝不存）：", default="").ask()
+    if save and save.strip():
+        lists[save.strip()] = [c["code"] for c in chosen]
+        _save_json_file(SAMPLE_CUSTLIST_FILE, lists)
+        console.print(f"[#5A9A4A]✓ 已存名單「{save.strip()}」[/#5A9A4A]")
+    return chosen
+
+
+def run_sample_orders(args):
+    """批次發樣／開免費單：一個組合 → 複製發給 N 個客戶，開單別=樣品/公關/贈品、單價全0、狀態未出貨。"""
+    console.print("[#B0A898]── 批次發樣／開免費單 ──[/#B0A898]")
+    console.print("[dim]  一個樣品組合，一次開給多個客戶。單價全 0、狀態未出貨（之後可走出貨/出庫扣庫存）[/dim]")
+
+    order_type = _select_with_esc("選擇單別：", choices=SAMPLE_ORDER_TYPES + ["← 返回"])
+    if not order_type or order_type == "← 返回":
+        return
+
+    price_index = load_price_index()
+    products = _flatten_products(price_index)
+    code_to_prod = {p["code"]: p for p in products}
+
+    combo = _pick_sample_combo(products)
+    if not combo:
+        console.print("[#FF7700]未選組合，返回[/#FF7700]")
+        return
+
+    customers = load_customers()
+    chosen = _pick_sample_customers(customers)
+    if not chosen:
+        console.print("[#FF7700]未選客戶，返回[/#FF7700]")
+        return
+
+    # 預覽
+    console.print(f"\n[#B0A898]── 即將開立 {len(chosen)} 張「{order_type}」單（每張內容相同）──[/#B0A898]")
+    console.print("  組合內容：")
+    for it in combo:
+        console.print(f"    {it['code']:<12} {it['name'][:20]} ×{it['qty']}  @0")
+    console.print("  發給客戶：")
+    for c in chosen:
+        console.print(f"    {c['name']}（{c['code']}）")
+    console.print(f"  單別：{order_type}　狀態：未出貨　金額：全 0")
+
+    resolved = []
+    for it in combo:
+        resolved.append({"product_code": it["code"], "unit_price": 0, "quantity": it["qty"]})
+
+    if args.dry_run:
+        console.print(f"[#FF7700]★ DRY-RUN：預覽 {len(chosen)} 張單，未寫入 Ragic[/#FF7700]")
+        return
+
+    if not questionary.confirm(f"確認開立 {len(chosen)} 張「{order_type}」單？", default=True).ask():
+        console.print("[#FF7700]已取消[/#FF7700]")
+        return
+
+    success = 0
+    for c in chosen:
+        try:
+            payload = build_payload(c, resolved, order_type, "未出貨",
+                                    tax_rate="", shipping_fee=0,
+                                    notes="", internal_notes="批次發樣")
+            result = ragic_post(SALES_ORDER_SHEET, payload)
+            if result.get("status") == "SUCCESS":
+                success += 1
+                console.print(f"[#5A9A4A]✓ {c['name']} 開單成功[/#5A9A4A]")
+                logging.info("批次發樣成功 客戶=%s 單別=%s", c["name"], order_type)
+            else:
+                console.print(f"[red]✗ {c['name']} 失敗：{_friendly_error(result.get('msg', str(result)))}[/red]")
+                logging.warning("批次發樣失敗 客戶=%s msg=%s", c["name"], result.get("msg", result))
+        except Exception as e:
+            console.print(f"[red]✗ {c['name']} 發生錯誤：{_friendly_error(str(e))}[/red]")
+            logging.error("批次發樣錯誤 客戶=%s error=%s", c["name"], e)
+    console.print(f"[bold #5A9A4A]完成！{success}/{len(chosen)} 張「{order_type}」單已建立[/bold #5A9A4A]")
+    console.print("[dim]請至 Ragic 銷貨單頁面確認[/dim]")
+    _pause()
+
+
 # ── 電商訂單對帳 ─────────────────────────────────────────────
 
 def run_ecom_reconcile(args):
@@ -1885,6 +2087,7 @@ def main():
             "請選擇功能：",
             choices=[
                 "新建銷售單",
+                "批次發樣／開免費單（樣品/公關/贈品）",
                 "建立出貨單（銷貨單拋轉）",
                 "建立出庫單（出貨單拋轉）",
                 "匯出庫存報表（Excel）",
@@ -1903,6 +2106,8 @@ def main():
                 price_index = load_price_index()
                 customers   = load_customers()
             run_new_sales_order(args, price_index, customers)
+        elif choice == "批次發樣／開免費單（樣品/公關/贈品）":
+            run_sample_orders(args)
         elif choice == "建立出貨單（銷貨單拋轉）":
             run_create_delivery_order(args)
         elif choice == "建立出庫單（出貨單拋轉）":

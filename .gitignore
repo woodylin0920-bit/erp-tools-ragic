@@ -19,6 +19,10 @@ client_order/**/done/
 # 上傳記錄（個人執行記錄）
 upload_log.json
 
+# 批次發樣的組合範本／客戶名單（含客戶資料，本機自存不上傳）
+app/sample_combos.json
+app/sample_customer_lists.json
+
 # 操作日誌（本機自行清理）
 logs/
 
