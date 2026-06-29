@@ -1965,8 +1965,10 @@ def _pick_sample_customers(customers: list) -> Optional[list]:
     if preset_codes:
         console.print(f"[dim]  已套用名單，預選 {len(preset_codes)} 個客戶；可再搜尋加減[/dim]")
     while True:
+        tip = f"（已選 {len(chosen_codes)} 個）" if chosen_codes else ""
         kw = questionary.text(
-            "搜尋客戶（中文/代號關鍵字；直接 Enter 完成選擇）：", default="").ask()
+            f"打關鍵字搜尋客戶加選{tip}；想換關鍵字就再打一次；直接 Enter＝完成全部選擇：",
+            default="").ask()
         if kw is None or not kw.strip():
             if chosen_codes:
                 break
@@ -1980,7 +1982,7 @@ def _pick_sample_customers(customers: list) -> Optional[list]:
             continue
         labels = [f"{c['name']}｜{c['code']}" for c in subset]
         picked = questionary.checkbox(
-            f"找到 {len(subset)} 筆，空白鍵勾選（已選的會預先勾起）、Enter 確認：",
+            f"找到 {len(subset)} 筆：空白鍵勾選 → 按 Enter 回搜尋框（可換關鍵字再搜、或在搜尋框直接 Enter 結束）：",
             choices=[questionary.Choice(labels[i], checked=(subset[i]["code"] in chosen_codes))
                      for i in range(len(subset))],
         ).ask()
