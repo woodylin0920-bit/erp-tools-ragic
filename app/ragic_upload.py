@@ -1795,18 +1795,24 @@ def _save_json_file(path: str, data: dict) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def _flatten_products(price_index: dict) -> list:
-    """price_index {條碼:[entry...]} → 攤平成商品清單，供搜尋。每筆含 code/name/spec/unit/barcode。"""
+def _load_sample_products() -> list:
+    """載入商品單價 20006 全品項供樣品搜尋。直接讀全表（不靠國際條碼過濾），
+    這樣展示架等「無條碼」商品也搜得到（load_price_index 會略過無條碼者）。"""
+    with console.status("[#B0A898]載入商品清單...[/#B0A898]", spinner="dots"):
+        records = ragic_get(PRODUCT_PRICE_SHEET)
     out = []
-    for barcode, entries in price_index.items():
-        for e in entries:
-            out.append({
-                "code":    str(e.get("product_code", "")),
-                "name":    str(e.get("product_name", "")),
-                "spec":    e.get("spec", 1),
-                "unit":    str(e.get("unit", "")),
-                "barcode": barcode,
-            })
+    for rec in records.values():
+        code = str(rec.get("商品單價代號", "")).strip()
+        if not code:
+            continue
+        out.append({
+            "code":    code,
+            "name":    str(rec.get("商品名稱", "")),
+            "spec":    rec.get("規格", 1),
+            "unit":    str(rec.get("單位", "")),
+            "barcode": str(rec.get("國際條碼", "")).strip(),
+        })
+    console.print(f"[#5A9A4A]✓ 載入 {len(out)} 項商品[/#5A9A4A]")
     return out
 
 
@@ -1918,9 +1924,7 @@ def run_sample_orders(args):
     if not order_type or order_type == "← 返回":
         return
 
-    price_index = load_price_index()
-    products = _flatten_products(price_index)
-    code_to_prod = {p["code"]: p for p in products}
+    products = _load_sample_products()
 
     combo = _pick_sample_combo(products)
     if not combo:
