@@ -1828,16 +1828,28 @@ def _search_products(products: list, keyword: str) -> list:
 def _pick_sample_combo(products: list) -> Optional[list]:
     """選或新建組合範本。回 [{code,name,qty}] 或 None（取消）。"""
     BACK = "← 返回"
+    DELETE = "🗑 刪除組合"
     combos = _load_json_file(SAMPLE_COMBOS_FILE)
     while True:
         choices = ["【新建組合】"]
         for name, items in combos.items():
             summary = "、".join("{}×{}".format(it["name"][:8], it["qty"]) for it in items)
             choices.append("{}（{}）".format(name, summary))
+        if combos:
+            choices.append(DELETE)
         choices.append(BACK)
         sel = _select_with_esc("請選擇樣品組合：", choices=choices)
         if not sel or sel == BACK:
             return None
+        if sel == DELETE:
+            dnames = list(combos.keys()) + [BACK]
+            dsel = _select_with_esc("要刪除哪個組合？", choices=dnames)
+            if dsel and dsel != BACK:
+                if questionary.confirm(f"確定刪除組合「{dsel}」？", default=False).ask():
+                    combos.pop(dsel, None)
+                    _save_json_file(SAMPLE_COMBOS_FILE, combos)
+                    console.print(f"[#5A9A4A]✓ 已刪除組合「{dsel}」[/#5A9A4A]")
+            continue
         if sel != "【新建組合】":
             cname = sel.split("（")[0]
             return combos[cname]
