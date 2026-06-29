@@ -1921,19 +1921,44 @@ def _pick_sample_customers(customers: list) -> Optional[list]:
         if sel != "【不套，全部手選】" and sel != BACK:
             preset_codes = [c for c in lists[sel] if c in by_code]
         break
-    # 複選（預設勾選名單成員）
-    name_choices = [f"{c['name']}｜{c['code']}" for c in customers if c["code"]]
-    code_by_label = {f"{c['name']}｜{c['code']}": c["code"] for c in customers if c["code"]}
-    checked = {f"{by_code[cc]['name']}｜{cc}" for cc in preset_codes}
-    picked = questionary.checkbox(
-        "勾選要發樣的客戶（直接打字搜尋、空白鍵勾選、Enter 確認）：",
-        choices=[questionary.Choice(lbl, checked=(lbl in checked)) for lbl in name_choices],
-        use_search_filter=True,
-        use_jk_keys=False,   # 關掉 j/k 當方向鍵，免得打字搜尋時被吃掉
-    ).ask()
-    if not picked:
+    # 客戶複選：questionary 的內建搜尋只吃 ASCII（中文進不去），故改「文字框打關鍵字
+    # →篩小清單→勾選」，可多次搜尋累加。文字框吃得了中文，自己做子字串比對。
+    all_custs = [c for c in customers if c["code"]]
+    chosen_codes = set(preset_codes)
+    if preset_codes:
+        console.print(f"[dim]  已套用名單，預選 {len(preset_codes)} 個客戶；可再搜尋加減[/dim]")
+    while True:
+        kw = questionary.text(
+            "搜尋客戶（中文/代號關鍵字；直接 Enter 完成選擇）：", default="").ask()
+        if kw is None or not kw.strip():
+            if chosen_codes:
+                break
+            if questionary.confirm("尚未選任何客戶，放棄發樣？", default=False).ask():
+                return None
+            continue
+        k = kw.strip().lower()
+        subset = [c for c in all_custs if k in c["name"].lower() or k in c["code"].lower()]
+        if not subset:
+            console.print("[#FF7700]查無客戶，換個關鍵字[/#FF7700]")
+            continue
+        labels = [f"{c['name']}｜{c['code']}" for c in subset]
+        picked = questionary.checkbox(
+            f"找到 {len(subset)} 筆，空白鍵勾選（已選的會預先勾起）、Enter 確認：",
+            choices=[questionary.Choice(labels[i], checked=(subset[i]["code"] in chosen_codes))
+                     for i in range(len(subset))],
+        ).ask()
+        if picked is None:
+            continue
+        picked_set = set(picked)
+        for i, c in enumerate(subset):   # 這批內：勾的加入、沒勾的移除（可在子集內取消）
+            if labels[i] in picked_set:
+                chosen_codes.add(c["code"])
+            else:
+                chosen_codes.discard(c["code"])
+        console.print(f"[#5A9A4A]目前已選 {len(chosen_codes)} 個客戶[/#5A9A4A]")
+    chosen = [by_code[cc] for cc in chosen_codes if cc in by_code]
+    if not chosen:
         return None
-    chosen = [by_code[code_by_label[lbl]] for lbl in picked if code_by_label.get(lbl) in by_code]
     # 可選：存成名單
     save = questionary.text("把這份客戶存成固定名單？（輸入名稱＝存、留空＝不存）：", default="").ask()
     if save and save.strip():
