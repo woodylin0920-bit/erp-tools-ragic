@@ -25,7 +25,7 @@ A specialized Python toolkit designed to streamline **Ragic Cloud DB** API inter
 |---------|-------------|
 | Create Sales Order | Parse customer purchase order Excel files and auto-create Ragic sales orders |
 | Create Delivery Order | One-click conversion from sales orders to delivery orders |
-| Create Outbound Order | One-click conversion from delivery orders to outbound orders with automatic warehouse data fill-in |
+| Create Outbound Order | One-click conversion from delivery orders to outbound orders. Auto-fills warehouse code/stock ID, doc note (customer name[/PO#]), and line note (【EAN】barcode); also detects "ship-unboxing" (splits a 中盒 into 單盒 after confirmation; flags non-whole-box leftovers for manual handling) |
 | Export Inventory Report | Pull live warehouse stock from Ragic. Two report types:<br/>• **Customer stock report** — auto-convert to PCS and fill into a single-warehouse template<br/>• **Monthly inventory valuation** — one sheet per warehouse with unit cost & inventory value (for accounting close-of-month) |
 | Xinzhu Logistics *(coming soon)* | Auto-fill Xinzhu courier system from sales order customer data — eliminate manual copy-paste |
 | Agent mode | Natural language interface powered by Claude AI — query inventory, analyze sales trends, get restock recommendations, and export Excel reports |
