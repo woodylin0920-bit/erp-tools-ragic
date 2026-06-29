@@ -1825,70 +1825,105 @@ def _search_products(products: list, keyword: str) -> list:
             if kw in p["code"].lower() or kw in p["name"].lower() or kw in p["barcode"].lower()]
 
 
-def _pick_sample_combo(products: list) -> Optional[list]:
-    """選或新建組合範本。回 [{code,name,qty}] 或 None（取消）。"""
+def _edit_combo_items(products: list, items: list) -> Optional[list]:
+    """組合編輯器（可加可減）。傳入起始 items（新建給 []，編輯給現有），回最終 items 或 None 取消。"""
     BACK = "← 返回"
-    DELETE = "🗑 刪除組合"
+    ADD, REMOVE, DONE, CANCEL = "➕ 加品項", "➖ 移除品項", "✓ 完成", "✗ 取消"
+    items = [dict(it) for it in items]  # 複製，不動原本
+    while True:
+        if items:
+            console.print("[#B0A898]目前組合：[/#B0A898]")
+            for it in items:
+                console.print(f"  {it['code']:<12} {it['name'][:20]} ×{it['qty']}")
+        else:
+            console.print("[dim]目前組合：（空）[/dim]")
+        opts = [ADD] + ([REMOVE, DONE] if items else []) + [CANCEL]
+        act = _select_with_esc("組合編輯：", choices=opts)
+        if not act or act == CANCEL:
+            return None
+        if act == DONE:
+            return items
+        if act == REMOVE:
+            ropts = [f"{it['code']} {it['name'][:16]} ×{it['qty']}" for it in items] + [BACK]
+            rsel = _select_with_esc("移除哪一項？", choices=ropts)
+            if rsel and rsel != BACK:
+                removed = items.pop(ropts.index(rsel))
+                console.print(f"[#5A9A4A]✓ 已移除 {removed['code']}[/#5A9A4A]")
+            continue
+        # 加品項：搜尋
+        kw = questionary.text("搜尋商品（中文/英文/代號；留空取消）：", default="").ask()
+        if not kw or not kw.strip():
+            continue
+        hits = _search_products(products, kw.strip())
+        if not hits:
+            console.print("[#FF7700]查無商品，換個關鍵字[/#FF7700]")
+            continue
+        hopts = [f"{h['code']:<12} {h['name'][:24]}（{h['unit']}）" for h in hits[:25]] + [BACK]
+        psel = _select_with_esc(f"找到 {len(hits)} 筆，請選：", choices=hopts)
+        if not psel or psel == BACK:
+            continue
+        prod = hits[hopts.index(psel)]
+        qraw = questionary.text(f"{prod['name'][:16]} 數量（pcs）：", default="1").ask()
+        try:
+            qn = int(float(qraw))
+        except (TypeError, ValueError):
+            console.print("[#FF7700]數量需為數字，略過[/#FF7700]")
+            continue
+        if qn <= 0:
+            continue
+        exist = next((it for it in items if it["code"] == prod["code"]), None)
+        if exist:
+            exist["qty"] = qn   # 同品項 → 更新數量
+            console.print(f"[#5A9A4A]✓ 已更新 {prod['code']} ×{qn}[/#5A9A4A]")
+        else:
+            items.append({"code": prod["code"], "name": prod["name"], "qty": qn})
+            console.print(f"[#5A9A4A]✓ 已加入 {prod['code']} ×{qn}[/#5A9A4A]")
+
+
+def _pick_sample_combo(products: list) -> Optional[list]:
+    """選／新建／編輯／刪除組合範本。回 [{code,name,qty}] 或 None（取消）。"""
+    BACK = "← 返回"
+    NEW, EDIT, DELETE = "【新建組合】", "✏️ 編輯組合", "🗑 刪除組合"
     combos = _load_json_file(SAMPLE_COMBOS_FILE)
     while True:
-        choices = ["【新建組合】"]
+        choices = [NEW]
         for name, items in combos.items():
             summary = "、".join("{}×{}".format(it["name"][:8], it["qty"]) for it in items)
             choices.append("{}（{}）".format(name, summary))
         if combos:
-            choices.append(DELETE)
+            choices += [EDIT, DELETE]
         choices.append(BACK)
         sel = _select_with_esc("請選擇樣品組合：", choices=choices)
         if not sel or sel == BACK:
             return None
         if sel == DELETE:
-            dnames = list(combos.keys()) + [BACK]
-            dsel = _select_with_esc("要刪除哪個組合？", choices=dnames)
-            if dsel and dsel != BACK:
-                if questionary.confirm(f"確定刪除組合「{dsel}」？", default=False).ask():
-                    combos.pop(dsel, None)
-                    _save_json_file(SAMPLE_COMBOS_FILE, combos)
-                    console.print(f"[#5A9A4A]✓ 已刪除組合「{dsel}」[/#5A9A4A]")
+            dsel = _select_with_esc("要刪除哪個組合？", choices=list(combos.keys()) + [BACK])
+            if dsel and dsel != BACK and questionary.confirm(f"確定刪除組合「{dsel}」？", default=False).ask():
+                combos.pop(dsel, None)
+                _save_json_file(SAMPLE_COMBOS_FILE, combos)
+                console.print(f"[#5A9A4A]✓ 已刪除組合「{dsel}」[/#5A9A4A]")
             continue
-        if sel != "【新建組合】":
+        if sel == EDIT:
+            esel = _select_with_esc("要編輯哪個組合？", choices=list(combos.keys()) + [BACK])
+            if not esel or esel == BACK:
+                continue
+            edited = _edit_combo_items(products, combos[esel])
+            if edited is None:
+                continue
+            if not edited:
+                console.print("[#FF7700]組合空了，未儲存（要刪請用刪除組合）[/#FF7700]")
+                continue
+            combos[esel] = edited
+            _save_json_file(SAMPLE_COMBOS_FILE, combos)
+            console.print(f"[#5A9A4A]✓ 已更新組合「{esel}」[/#5A9A4A]")
+            continue
+        if sel != NEW:
             cname = sel.split("（")[0]
             return combos[cname]
-        # 新建組合：搜尋商品逐項加入
-        items = []
-        while True:
-            hint = "搜尋商品（中文/英文/代號）；輸入 0 返回上一步" + ("；直接 Enter 完成組合" if items else "")
-            kw = questionary.text(hint + "：", default="").ask()
-            if kw is None or kw.strip() == "0":
-                items = []          # 取消這個組合
-                break
-            if not kw.strip():
-                if items:
-                    break           # 已加品項 → 完成
-                continue            # 還沒加 → 提示無效，繼續問
-            hits = _search_products(products, kw)
-            if not hits:
-                console.print("[#FF7700]查無商品，換個關鍵字[/#FF7700]")
-                continue
-            opts = [f"{h['code']:<12} {h['name'][:24]}（{h['unit']}）" for h in hits[:25]] + [BACK]
-            psel = _select_with_esc(f"找到 {len(hits)} 筆，請選：", choices=opts)
-            if not psel or psel == BACK:
-                continue
-            prod = hits[opts.index(psel)]
-            qty = questionary.text(f"{prod['name'][:16]} 數量（pcs）：", default="1").ask()
-            try:
-                qn = int(float(qty))
-            except (TypeError, ValueError):
-                console.print("[#FF7700]數量需為數字，略過此項[/#FF7700]")
-                continue
-            if qn <= 0:
-                continue
-            items.append({"code": prod["code"], "name": prod["name"], "qty": qn})
-            console.print(f"[#5A9A4A]✓ 已加入 {prod['code']} ×{qn}[/#5A9A4A]")
+        # 新建組合
+        items = _edit_combo_items(products, [])
         if not items:
-            continue          # 取消新建 → 回組合選單（上一步），不退出整個功能
-        console.print("[#B0A898]目前組合：[/#B0A898]")
-        for it in items:
-            console.print(f"  {it['code']:<12} {it['name'][:20]} ×{it['qty']}")
+            continue          # 取消 → 回組合選單，不退出整個功能
         name = questionary.text("為這個組合命名（留空＝這次用、不存檔）：", default="").ask()
         if name and name.strip():
             combos[name.strip()] = items
@@ -1904,9 +1939,10 @@ def _pick_sample_customers(customers: list) -> Optional[list]:
     lists = _load_json_file(SAMPLE_CUSTLIST_FILE)
     by_code = {c["code"]: c for c in customers if c["code"]}
     preset_codes = []
+    applied_name = ""   # 套用了哪個名單（存檔時預設帶同名＝編輯覆蓋）
     while lists:
         opts = ["【不套，全部手選】"] + list(lists.keys()) + [DELETE, BACK]
-        sel = _select_with_esc("套用固定發樣名單？", choices=opts)
+        sel = _select_with_esc("套用固定發樣名單？（套用後可加減客戶、存回同名＝編輯）", choices=opts)
         if not sel:
             return None
         if sel == DELETE:
@@ -1920,6 +1956,7 @@ def _pick_sample_customers(customers: list) -> Optional[list]:
             continue
         if sel != "【不套，全部手選】" and sel != BACK:
             preset_codes = [c for c in lists[sel] if c in by_code]
+            applied_name = sel
         break
     # 客戶複選：questionary 的內建搜尋只吃 ASCII（中文進不去），故改「文字框打關鍵字
     # →篩小清單→勾選」，可多次搜尋累加。文字框吃得了中文，自己做子字串比對。
@@ -1959,12 +1996,14 @@ def _pick_sample_customers(customers: list) -> Optional[list]:
     chosen = [by_code[cc] for cc in chosen_codes if cc in by_code]
     if not chosen:
         return None
-    # 可選：存成名單
-    save = questionary.text("把這份客戶存成固定名單？（輸入名稱＝存、留空＝不存）：", default="").ask()
+    # 存成名單：套用過名單時預設帶同名（Enter 覆蓋＝編輯）；新名單則打新名字
+    prompt = ("存回名單（Enter＝更新「%s」、改名＝另存、清空＝不存）：" % applied_name
+              if applied_name else "把這份客戶存成固定名單？（輸入名稱＝存、留空＝不存）：")
+    save = questionary.text(prompt, default=applied_name).ask()
     if save and save.strip():
         lists[save.strip()] = [c["code"] for c in chosen]
         _save_json_file(SAMPLE_CUSTLIST_FILE, lists)
-        console.print(f"[#5A9A4A]✓ 已存名單「{save.strip()}」[/#5A9A4A]")
+        console.print(f"[#5A9A4A]✓ 已存名單「{save.strip()}」（{len(chosen)} 客戶）[/#5A9A4A]")
     return chosen
 
 
