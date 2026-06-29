@@ -1900,15 +1900,27 @@ def _pick_sample_combo(products: list) -> Optional[list]:
 def _pick_sample_customers(customers: list) -> Optional[list]:
     """選客戶：套固定名單打底 + 當次複選加減；可存新名單。回 [客戶dict] 或 None。"""
     BACK = "← 返回"
+    DELETE = "🗑 刪除名單"
     lists = _load_json_file(SAMPLE_CUSTLIST_FILE)
     by_code = {c["code"]: c for c in customers if c["code"]}
     preset_codes = []
-    if lists:
-        sel = _select_with_esc("套用固定發樣名單？", choices=["【不套，全部手選】"] + list(lists.keys()) + [BACK])
+    while lists:
+        opts = ["【不套，全部手選】"] + list(lists.keys()) + [DELETE, BACK]
+        sel = _select_with_esc("套用固定發樣名單？", choices=opts)
         if not sel:
             return None
+        if sel == DELETE:
+            dnames = list(lists.keys()) + [BACK]
+            dsel = _select_with_esc("要刪除哪個名單？", choices=dnames)
+            if dsel and dsel != BACK:
+                if questionary.confirm(f"確定刪除名單「{dsel}」？", default=False).ask():
+                    lists.pop(dsel, None)
+                    _save_json_file(SAMPLE_CUSTLIST_FILE, lists)
+                    console.print(f"[#5A9A4A]✓ 已刪除名單「{dsel}」[/#5A9A4A]")
+            continue
         if sel != "【不套，全部手選】" and sel != BACK:
             preset_codes = [c for c in lists[sel] if c in by_code]
+        break
     # 複選（預設勾選名單成員）
     name_choices = [f"{c['name']}｜{c['code']}" for c in customers if c["code"]]
     code_by_label = {f"{c['name']}｜{c['code']}": c["code"] for c in customers if c["code"]}
