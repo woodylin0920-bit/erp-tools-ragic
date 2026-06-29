@@ -1844,13 +1844,15 @@ def _pick_sample_combo(products: list) -> Optional[list]:
         # 新建組合：搜尋商品逐項加入
         items = []
         while True:
-            kw = questionary.text("搜尋商品（中文/英文/代號關鍵字，留空結束）：", default="").ask()
-            if kw is None:
+            hint = "搜尋商品（中文/英文/代號）；輸入 0 返回上一步" + ("；直接 Enter 完成組合" if items else "")
+            kw = questionary.text(hint + "：", default="").ask()
+            if kw is None or kw.strip() == "0":
+                items = []          # 取消這個組合
                 break
             if not kw.strip():
                 if items:
-                    break
-                continue
+                    break           # 已加品項 → 完成
+                continue            # 還沒加 → 提示無效，繼續問
             hits = _search_products(products, kw)
             if not hits:
                 console.print("[#FF7700]查無商品，換個關鍵字[/#FF7700]")
@@ -1871,7 +1873,7 @@ def _pick_sample_combo(products: list) -> Optional[list]:
             items.append({"code": prod["code"], "name": prod["name"], "qty": qn})
             console.print(f"[#5A9A4A]✓ 已加入 {prod['code']} ×{qn}[/#5A9A4A]")
         if not items:
-            return None
+            continue          # 取消新建 → 回組合選單（上一步），不退出整個功能
         console.print("[#B0A898]目前組合：[/#B0A898]")
         for it in items:
             console.print(f"  {it['code']:<12} {it['name'][:20]} ×{it['qty']}")
