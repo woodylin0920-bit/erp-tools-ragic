@@ -353,6 +353,13 @@ def _to_int(x, default: int = 0) -> int:
         return default
 
 
+def extract_po(text: str) -> str:
+    """從銷貨單備註抓 PO 號（如「【系統建單】 PO#53961 …」→ 53961）。找不到回空字串。
+    必須有 PO# 井號才認（避免誤抓 polypeng 這類字串）；容忍井號後空格。"""
+    m = re.search(r"PO\s*[#＃]\s*([A-Za-z0-9\-]+)", str(text or ""))
+    return m.group(1) if m else ""
+
+
 def compute_break_plan(line_needs: list, inventory: dict, warehouse_code: str) -> list:
     """自動拆盒計畫（唯讀，不寫入）。
 
@@ -1207,7 +1214,7 @@ def run_create_outbound_order(args):
             for prod, inv in prod_inv_map.items():
                 if inv:
                     console.print(f"  {prod} → {inv}")
-            console.print("[dim]  拋轉後自動補：倉庫/庫存編號、單據備註=客戶名稱、明細備註=【EAN】條碼[/dim]")
+            console.print("[dim]  拋轉後自動補：倉庫/庫存編號、單據備註=客戶名稱[/PO#]、明細備註=【EAN】條碼[/dim]")
             console.print("[dim]  並偵測出貨拆盒：整中盒會再請你確認後才改庫存、零頭只提醒拆實體[/dim]")
             ok = questionary.confirm("確認執行？", default=True).ask()
             if not ok:
@@ -1326,12 +1333,26 @@ def run_create_outbound_order(args):
     console.print(f"[#5A9A4A]✓ 偵測到 {len(new_ids)} 筆新出庫單，開始補填倉庫資料...[/#5A9A4A]")
 
     # ── 備註自動填寫準備 ───────────────────────────────────────
-    # 單據備註(表頭)=客戶名稱；子表每列備註=國際條碼（一律，不分客戶）。
-    # 客戶名稱要從來源出貨單帶（出庫單表頭沒有客戶名稱欄），用出貨單號對回。
+    # 單據備註(表頭)=客戶名稱 [+ PO#]；子表每列備註=國際條碼（一律，不分客戶）。
+    # 客戶名稱/訂單編號從來源出貨單帶（出庫單表頭沒有），用出貨單號對回。
     shipno_to_cust = {
         str(records[rid].get("出貨單號", "")).strip(): str(records[rid].get("客戶名稱", "")).strip()
         for rid in record_ids
     }
+    # PO# 來自銷貨單備註：出貨單.訂單編號 → 銷貨單.訂單編號 → 備註裡的 PO#
+    shipno_to_order = {
+        str(records[rid].get("出貨單號", "")).strip(): str(records[rid].get("訂單編號", "")).strip()
+        for rid in record_ids
+    }
+    order_to_po = {}
+    try:
+        for so in ragic_get(SALES_ORDER_SHEET).values():
+            on = str(so.get("訂單編號", "")).strip()
+            po = extract_po(so.get("備註", ""))
+            if on and po:
+                order_to_po[on] = po
+    except Exception as e:
+        logging.warning("載入銷貨單帶 PO# 失敗（單據備註將只填客戶名稱）：%s", e)
     code_to_barcode = build_code_to_barcode(load_price_index())
 
     patched = 0
@@ -1344,6 +1365,8 @@ def run_create_outbound_order(args):
 
         ship_no = str(rec.get("出貨單號", "")).strip()
         customer = shipno_to_cust.get(ship_no, "")
+        po = order_to_po.get(shipno_to_order.get(ship_no, ""), "")
+        doc_note = f"{customer} / PO#{po}".strip(" /") if po else customer
 
         # 填倉庫代碼、庫存編號（用 CID，必填欄位用欄位名稱會被 Ragic validation 擋掉）＋
         # 子表備註=國際條碼。倉庫名稱(3001125)唯讀，填代碼後 Ragic 自動帶入。
@@ -1371,14 +1394,14 @@ def run_create_outbound_order(args):
                 updated_rows[str(row_id)] = cell
 
         patch_body = {OUTBOUND_ITEMS_SUBTABLE_KEY: updated_rows}
-        if customer:
-            patch_body[OUTBOUND_DOC_NOTE_CID] = customer  # 單據備註=客戶名稱
+        if doc_note:
+            patch_body[OUTBOUND_DOC_NOTE_CID] = doc_note  # 單據備註=客戶名稱[ / PO#]
 
         try:
             ragic_patch(OUTBOUND_ORDER_SHEET, oid, patch_body)
             patched += 1
-            console.print(f"[#5A9A4A]✓ 出庫單 {oid} 補填完成（{warehouse_code}／單據備註「{customer or '-'}」＋備註國際條碼）[/#5A9A4A]")
-            logging.info("出庫單補填成功 outbound_id=%s warehouse=%s customer=%s", oid, warehouse_code, customer)
+            console.print(f"[#5A9A4A]✓ 出庫單 {oid} 補填完成（{warehouse_code}／單據備註「{doc_note or '-'}」＋備註國際條碼）[/#5A9A4A]")
+            logging.info("出庫單補填成功 outbound_id=%s warehouse=%s doc_note=%s", oid, warehouse_code, doc_note)
         except Exception as e:
             console.print(f"[red]⚠ 出庫單 {oid} 補填失敗：{e}[/red]")
             logging.error("出庫單補填失敗 outbound_id=%s error=%s", oid, e)
