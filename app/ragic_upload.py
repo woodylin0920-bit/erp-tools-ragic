@@ -1926,8 +1926,10 @@ def _pick_sample_customers(customers: list) -> Optional[list]:
     code_by_label = {f"{c['name']}｜{c['code']}": c["code"] for c in customers if c["code"]}
     checked = {f"{by_code[cc]['name']}｜{cc}" for cc in preset_codes}
     picked = questionary.checkbox(
-        "勾選要發樣的客戶（空白鍵勾選、可打字搜尋、Enter 確認）：",
+        "勾選要發樣的客戶（直接打字搜尋、空白鍵勾選、Enter 確認）：",
         choices=[questionary.Choice(lbl, checked=(lbl in checked)) for lbl in name_choices],
+        use_search_filter=True,
+        use_jk_keys=False,   # 關掉 j/k 當方向鍵，免得打字搜尋時被吃掉
     ).ask()
     if not picked:
         return None
