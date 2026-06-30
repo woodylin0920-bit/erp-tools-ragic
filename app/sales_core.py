@@ -44,11 +44,13 @@ def preview_file(path, price_index: dict, customers: list) -> list:
                                    auto_unit_spec=(client == "LE"), auto_pick_ambiguous=True)
         box_notes = [it["box_note"] for it in resolved if it.get("box_note")]
         ambiguous = any(getattr(it, "_ambiguous", False) for it in order.items)
+        # resolve_items 會略過「條碼不在單價表」的品項 → 比對數量差，避免開出殘缺/空單
+        skipped = len(order.items) - len(resolved)
         out.append({
             "client": client, "store": order.store_code, "po": order.po_number,
             "customer": cust, "customer_missing": cust is None,
             "items": resolved, "box_notes": box_notes, "ambiguous": ambiguous,
-            "subtotal": sum(it["amount"] for it in resolved),
+            "skipped": skipped, "subtotal": sum(it["amount"] for it in resolved),
         })
     return out
 

@@ -3,11 +3,13 @@ cd "$(dirname "$0")"
 if [ ! -d "venv" ]; then
     echo "🔧 首次執行，正在安裝環境..."
     python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt --quiet
-else
-    source venv/bin/activate
 fi
+source venv/bin/activate
+# 既有 venv 也跑一次，確保新增套件（customtkinter 等）有裝
+python3 -c "import customtkinter" 2>/dev/null || {
+    echo "🔧 安裝/更新相依套件..."
+    pip install -r requirements.txt --quiet
+}
 # 確認 tkinter（GUI 需要）
 python3 -c "import tkinter" 2>/dev/null || {
     echo "⚠ 此 Python 缺 tkinter，GUI 無法啟動。"

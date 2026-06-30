@@ -63,7 +63,7 @@ class Screen(ctk.CTkFrame):
         def w():
             try:
                 q.put(("ok", work()))
-            except Exception as e:
+            except BaseException as e:   # 連 SystemExit 都接住（金鑰失效時 CLI 層可能 sys.exit）
                 q.put(("err", e))
         threading.Thread(target=w, daemon=True).start()
 
@@ -482,9 +482,18 @@ class OutboundScreen(Screen):
         wh = self.wh.get()
         merged = self.OC.merge_breakbox(plan)
         nbox = sum(m["boxes"] for m in merged.values())
+        # 把拆盒 blocker（中盒不足/查無/非整中盒缺口）攤在確認框，避免被無聲略過
+        blockers = [p for p in plan if p["status"] in ("parent_short", "no_parent", "no_stock")]
+        manual = [p for p in plan if p["status"] == "manual" and max(0, p["need"] - p["have"]) > 0]
         msg = (f"確定執行？\n\n倉庫：{wh}\n出貨單：{len(ids)} 張\n"
                f"拆盒：{len(merged)} 種中盒、共 {nbox} 盒（會改 20008 庫存）\n"
                f"接著拋轉建立出庫單並自動補欄位。")
+        if blockers:
+            msg += "\n\n⛔ 下列無法自動處理（中盒不足/查無），仍會繼續拋轉但這些不會拆盒：\n" \
+                   + "\n".join(f"  {p['prod']} 客戶{p['need']}" for p in blockers[:6])
+        if manual:
+            msg += "\n\n⚠ 非整中盒（零頭，需人工拆實體）：\n" \
+                   + "\n".join(f"  {p['prod']} 客戶{p['need']}" for p in manual[:6])
         if not mbox.askyesno("確認執行（會寫入 ERP）", msg):
             return
         # 庫存編號：每商品在該倉若唯一自動帶，多筆取第一筆
@@ -664,18 +673,29 @@ class NewSalesScreen(Screen):
             if p["ambiguous"]:
                 ctk.CTkLabel(card, text="   ⛔ 規格需人工選（多規格），此單請改用 CLI 開立", text_color=RED,
                              font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14)
+            if p.get("skipped"):
+                ctk.CTkLabel(card, text=f"   ⛔ 有 {p['skipped']} 項商品不在單價表（被略過），此單請改用 CLI 處理", text_color=RED,
+                             font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14)
+            if not p["items"]:
+                ctk.CTkLabel(card, text="   ⛔ 無有效商品，跳過", text_color=RED,
+                             font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14)
             ctk.CTkLabel(card, text="", height=4).pack()
-        ok = sum(1 for p in preview if not p["customer_missing"] and not p["ambiguous"])
-        blocked = sum(1 for p in preview if p["customer_missing"] or p["ambiguous"])
-        self.status.configure(text=f"解析 {len(preview)} 張，可開立 {ok}（{blocked} 張對不到客戶或規格需人工，跳過）")
+        ok = sum(1 for p in preview if self._creatable(p))
+        blocked = len(preview) - ok
+        self.status.configure(text=f"解析 {len(preview)} 張，可開立 {ok}（{blocked} 張對不到客戶/規格需人工/商品缺漏，跳過）")
+
+    @staticmethod
+    def _creatable(p):
+        return (not p["customer_missing"] and not p["ambiguous"]
+                and not p.get("skipped") and bool(p["items"]))
 
     def _go(self):
         if not self.preview:
             mbox.showwarning("提醒", "請先解析預覽"); return
-        # 排除：對不到客戶（需建檔）、規格歧義（需人工選，避免開錯 SKU）
-        creatable = [p for p in self.preview if not p["customer_missing"] and not p["ambiguous"]]
+        # 排除：對不到客戶、規格歧義、商品缺漏、空單（避免開錯/殘缺單，請用 CLI）
+        creatable = [p for p in self.preview if self._creatable(p)]
         if not creatable:
-            mbox.showwarning("提醒", "沒有可安全開立的訂單（客戶對不到或規格需人工選，請用 CLI）"); return
+            mbox.showwarning("提醒", "沒有可安全開立的訂單（客戶對不到/規格需人工/商品缺漏，請用 CLI）"); return
         ot, ost, tax = self.otype.get(), self.ostat.get(), self.otax.get()
         if self.dry_switch.get():
             mbox.showinfo("預覽（未寫入）",
