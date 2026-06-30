@@ -19,6 +19,13 @@ import customtkinter as ctk   # noqa: E402
 import sample_core as SC      # noqa: E402
 import ragic_upload as R      # noqa: E402
 
+try:                          # 拖放（選用）；沒裝 tkinterdnd2 也能跑，只是不能拖
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+    HAS_DND = True
+except Exception:
+    HAS_DND = False
+    DND_FILES = None
+
 R.NONINTERACTIVE = True   # GUI：金鑰缺失/失效時 raise（不跳 CLI 問答卡死背景緒）
 
 ctk.set_appearance_mode("light")
@@ -654,8 +661,8 @@ class NewSalesScreen(Screen):
         # 選檔列：顯示選到的檔 + 格式（檔案不在 client_order/ 時需指定）
         pickrow = ctk.CTkFrame(self, fg_color="transparent")
         pickrow.pack(fill="x", padx=24, pady=(0, 4))
-        self.picked_label = ctk.CTkLabel(pickrow, text="（或按「選擇檔案」從電腦任意位置丟一個 Excel 進來）",
-                                         text_color=GRAY, font=ctk.CTkFont(size=12))
+        hint = "（或按「選擇檔案」／把 Excel 拖到下方區域）" if HAS_DND else "（或按「選擇檔案」從電腦任意位置選 Excel）"
+        self.picked_label = ctk.CTkLabel(pickrow, text=hint, text_color=GRAY, font=ctk.CTkFont(size=12))
         self.picked_label.pack(side="left")
         ctk.CTkLabel(pickrow, text="格式", text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left", padx=(14, 2))
         self.fmt = ctk.CTkOptionMenu(pickrow, values=["TRU", "LE", "TEMPLATE"], width=110)
@@ -674,8 +681,15 @@ class NewSalesScreen(Screen):
         self.otax = ctk.CTkOptionMenu(self.opts, values=["5%", "(5%)"], width=80)
         self.otax.pack(side="left", padx=4)
 
-        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent",
+                                             label_text=("把 Excel 拖到這裡" if HAS_DND else ""))
         self.scroll.pack(fill="both", expand=True, padx=18, pady=8)
+        if HAS_DND:
+            try:
+                self.scroll.drop_target_register(DND_FILES)
+                self.scroll.dnd_bind("<<Drop>>", self._on_drop)
+            except Exception:
+                pass
         bar = ctk.CTkFrame(self, height=60, fg_color="#FAFAFB")
         bar.pack(fill="x", side="bottom")
         self.status = ctk.CTkLabel(bar, text="", text_color=GRAY, font=ctk.CTkFont(size=12))
@@ -709,15 +723,27 @@ class NewSalesScreen(Screen):
 
     def _pick_file(self):
         import tkinter.filedialog as fd
-        import pathlib
         path = fd.askopenfilename(title="選擇客戶訂單 Excel",
                                   filetypes=[("Excel", "*.xlsx"), ("所有檔案", "*.*")])
-        if not path:
-            return
-        p = pathlib.Path(path)
+        if path:
+            self._use_picked(path)
+
+    def _on_drop(self, event):
+        # 拖放可能一次多檔/含空白路徑，用 tk.splitlist 解析，取第一個 .xlsx
+        try:
+            paths = self.scroll.tk.splitlist(event.data)
+        except Exception:
+            paths = [event.data]
+        xlsx = [p for p in paths if str(p).lower().endswith(".xlsx")]
+        if not xlsx:
+            mbox.showwarning("提醒", "請拖入 .xlsx 檔"); return
+        self._use_picked(xlsx[0])
+
+    def _use_picked(self, path):
+        import pathlib
+        p = pathlib.Path(str(path).strip().strip("{}"))   # 去掉 DnD 可能的大括號
         self._picked = p
         self.picked_label.configure(text=f"已選：{p.name}", text_color="#1C1C1E")
-        # 父資料夾若是已知格式就自動帶（如 …/TRU/xxx.xlsx）
         parent = p.parent.name.upper()
         if parent in ("TRU", "LE", "TEMPLATE"):
             self.fmt.set(parent)
@@ -944,9 +970,14 @@ SCREENS = {
 # ════════════════════════════════════════════════════════════
 #  主視窗
 # ════════════════════════════════════════════════════════════
-class App(ctk.CTk):
+_APP_BASES = (ctk.CTk, TkinterDnD.DnDWrapper) if HAS_DND else (ctk.CTk,)
+
+
+class App(*_APP_BASES):
     def __init__(self):
         super().__init__()
+        if HAS_DND:
+            self.TkdndVersion = TkinterDnD._require(self)   # 啟用整個視窗的拖放能力
         self.title("潮玩波普 ERP")
         self.geometry("1080x700")
         self.minsize(940, 600)

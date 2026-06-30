@@ -5,8 +5,8 @@ if [ ! -d "venv" ]; then
     python3 -m venv venv
 fi
 source venv/bin/activate
-# 既有 venv 也跑一次，確保新增套件（customtkinter 等）有裝
-python3 -c "import customtkinter" 2>/dev/null || {
+# 既有 venv 也檢查，確保新增套件（customtkinter / tkinterdnd2 等）有裝
+python3 -c "import customtkinter, tkinterdnd2" 2>/dev/null || {
     echo "🔧 安裝/更新相依套件..."
     pip install -r requirements.txt --quiet
 }

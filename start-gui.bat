@@ -5,7 +5,7 @@ if not exist venv (
     python -m venv venv
 )
 call venv\Scripts\activate
-python -c "import customtkinter" 2>NUL || (
+python -c "import customtkinter, tkinterdnd2" 2>NUL || (
     echo Installing/updating dependencies...
     pip install -r requirements.txt --quiet
 )

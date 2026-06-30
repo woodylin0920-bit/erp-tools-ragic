@@ -6,3 +6,4 @@ rich>=13.0
 requests>=2.31
 python-dotenv>=1.0
 customtkinter>=5.2   # 桌面 GUI（需 Python 含 tkinter；macOS: brew install python-tk）
+tkinterdnd2>=0.4   # 新建銷售單拖放檔案（選用，沒裝則用選擇檔案按鈕）
