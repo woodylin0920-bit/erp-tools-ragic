@@ -494,9 +494,17 @@ class OutboundScreen(Screen):
         if manual:
             msg += "\n\n⚠ 非整中盒（零頭，需人工拆實體）：\n" \
                    + "\n".join(f"  {p['prod']} 客戶{p['need']}" for p in manual[:6])
+        # 多庫存編號：GUI 取第一筆，但明確告知（影響扣哪一批庫存），讓使用者決定要不要改用 CLI
+        multi = [(p["prod"], self.ctx["inv_by_wh_prod"].get((wh, p["prod"]), []))
+                 for p in self.OC.products_of(self.ctx["records"], ids)]
+        multi = [(prod, opts) for prod, opts in multi if len(opts) > 1]
+        if multi:
+            msg += ("\n\n⚠ 下列商品在此倉有多個庫存編號，GUI 會取第一筆（影響扣哪批）。\n"
+                    "  若需指定批號請改用 CLI：\n"
+                    + "\n".join(f"  {prod}：{opts}" for prod, opts in multi[:5]))
         if not mbox.askyesno("確認執行（會寫入 ERP）", msg):
             return
-        # 庫存編號：每商品在該倉若唯一自動帶，多筆取第一筆
+        # 庫存編號：每商品在該倉若唯一自動帶，多筆取第一筆（上方已警示）
         prod_inv = {}
         for p in self.OC.products_of(self.ctx["records"], ids):
             opts = self.ctx["inv_by_wh_prod"].get((wh, p["prod"]), [])
@@ -705,6 +713,8 @@ class NewSalesScreen(Screen):
         if not mbox.askyesno("確認開立", f"確定開立 {len(creatable)} 張銷貨單到 Ragic？\n（已自動防重複、帶入 PO#）"):
             return
 
+        self._active_file = self.files.get(self.file_menu.get())
+
         def work():
             res = []
             for p in creatable:
@@ -725,7 +735,32 @@ class NewSalesScreen(Screen):
             msg += f"\n防重複跳過 {dup} 張（之前已開過）。"
         if fail:
             msg += "\n\n失敗：\n" + "\n".join(fail[:8])
+        # 無失敗才把檔案移到 done/（與 CLI 一致，避免 list_pending 一直提供已開過的檔）
+        moved = False
+        f = getattr(self, "_active_file", None)
+        if f and not fail and (ok or dup):
+            try:
+                import shutil
+                done_dir = f.parent / "done"
+                done_dir.mkdir(exist_ok=True)
+                shutil.move(str(f), str(done_dir / f.name))
+                moved = True
+            except Exception as e:
+                msg += f"\n（移檔到 done/ 失敗：{e}）"
+        if moved:
+            msg += "\n\n已將檔案移至 done/。"
+            self.preview = []
+            for w in self.scroll.winfo_children():
+                w.destroy()
+            self.run_async(self.SLC.list_pending, self._refresh_files)
         mbox.showinfo("結果", msg)
+
+    def _refresh_files(self, files):
+        self.files = {f"{f.parent.name}/{f.name}": f for f in files}
+        names = list(self.files) or ["（client_order/ 內無待處理檔案）"]
+        self.file_menu.configure(values=names)
+        self.file_menu.set(names[0])
+        self.status.configure(text=f"剩 {len(files)} 個待處理檔案")
 
 
 # ════════════════════════════════════════════════════════════
