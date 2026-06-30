@@ -520,6 +520,10 @@ class OutboundScreen(Screen):
 
         def work():
             ctx = self.OC.load_context()          # 重載，拿到最新絕對庫存值
+            # Preflight：動庫存「之前」先確認出庫單按鈕在。否則拆盒已扣庫存卻建不出出庫單，
+            # 重試會重複扣。按鈕缺失就在這裡 raise，庫存完全沒被動。
+            if R.ragic_get_action_button_id(R.DELIVERY_ORDER_SHEET, "建立出庫單") is None:
+                raise RuntimeError("找不到「建立出庫單」按鈕，未改動任何庫存。請確認 Ragic 表單設定。")
             fresh_plan = self.OC.break_plan(ctx["records"], ids, ctx["inventory"], wh)
             fresh_merged = self.OC.merge_breakbox(fresh_plan)
             prod_inv = {}
