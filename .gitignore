@@ -48,3 +48,8 @@ readme/
 
 # 測試用真實客戶檔（本機保留，不上傳）
 tests/fixtures/
+
+# PyInstaller 打包產物
+build/
+dist/
+*.spec

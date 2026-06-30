@@ -1,0 +1,36 @@
+name: Build GUI executables
+
+# 手動觸發或打 tag 時，建 Windows .exe（行政免裝 Python 雙擊就開）。
+# Mac 版在自己機器跑 scripts/build-gui.sh 即可。
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: pip install -r requirements.txt pyinstaller
+      - name: Build .exe
+        run: >
+          pyinstaller --noconfirm --windowed --name BoptoysERP
+          --collect-data customtkinter
+          --collect-all tkinterdnd2
+          --add-data "templates;templates"
+          --paths app
+          --hidden-import sample_core --hidden-import outbound_core
+          --hidden-import export_core --hidden-import sales_core --hidden-import ragic_upload
+          --collect-submodules parsers --collect-submodules ecom
+          app/gui.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BoptoysERP-windows
+          path: dist/BoptoysERP/
+          retention-days: 30

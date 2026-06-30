@@ -894,9 +894,18 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
     }
 
 
-BASE_CLIENT_ORDER = Path(__file__).resolve().parent.parent / "client_order"
-BASE_TEMPLATES    = Path(__file__).resolve().parent.parent / "templates"
-BASE_OUTPUT       = Path(__file__).resolve().parent.parent / "exports"
+# 路徑：開發時用 repo 根目錄；打包(PyInstaller)後 __file__ 在暫存解壓目錄，
+# 故資料夾改放使用者家目錄 ~/潮玩波普ERP/，模板從 bundle(_MEIPASS) 帶。
+_FROZEN = getattr(sys, "frozen", False)
+if _FROZEN:
+    _DATA_ROOT = Path.home() / "潮玩波普ERP"
+    _DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    BASE_TEMPLATES = Path(getattr(sys, "_MEIPASS", str(_DATA_ROOT))) / "templates"
+else:
+    _DATA_ROOT = Path(__file__).resolve().parent.parent
+    BASE_TEMPLATES = _DATA_ROOT / "templates"
+BASE_CLIENT_ORDER = _DATA_ROOT / "client_order"
+BASE_OUTPUT       = _DATA_ROOT / "exports"
 
 
 def find_pending_files(base_dir: Path) -> list:
