@@ -8,6 +8,7 @@
 安全：右上「預覽模式」開＝只預覽不寫入；關閉並按開立才會 POST，且跳確認框。
 """
 import os
+import queue
 import sys
 import threading
 import tkinter.messagebox as mbox
@@ -160,17 +161,31 @@ class SampleOrderFrame(ctk.CTkFrame):
         self.go_btn.grid(row=0, column=1, sticky="e", padx=26, pady=12)
         self._update_summary()
 
-    # ── 資料載入（背景執行緒，避免卡 UI）──
+    # ── 資料載入（背景執行緒取資料，主執行緒輪詢 queue 更新 UI）──
+    # Tkinter 不可跨執行緒呼叫；背景只放結果進 queue，由主執行緒 _poll_data 取出更新。
     def _load_data_async(self):
+        self._dataq = queue.Queue()
+
         def work():
             try:
                 custs = SC.load_customers()
                 combos = SC.load_combos()
+                self._dataq.put(("ok", custs, combos))
             except Exception as e:
-                self.after(0, lambda: mbox.showerror("載入失敗", str(e)))
-                return
-            self.after(0, lambda: self._on_data_loaded(custs, combos))
+                self._dataq.put(("err", e, None))
         threading.Thread(target=work, daemon=True).start()
+        self._poll_data()   # 主執行緒啟動輪詢
+
+    def _poll_data(self):
+        try:
+            kind, a, b = self._dataq.get_nowait()
+        except queue.Empty:
+            self.after(120, self._poll_data)   # 在主執行緒呼叫 .after()，安全
+            return
+        if kind == "ok":
+            self._on_data_loaded(a, b)
+        else:
+            mbox.showerror("載入失敗", str(a))
 
     def _on_data_loaded(self, custs, combos):
         self.all_customers = [c for c in custs if c.get("code")]
