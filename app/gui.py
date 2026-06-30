@@ -652,7 +652,8 @@ class NewSalesScreen(Screen):
         self.ostat = ctk.CTkOptionMenu(self.opts, values=["未出貨", "預接單", "已收款未出貨"], width=130)
         self.ostat.pack(side="left", padx=(4, 14))
         ctk.CTkLabel(self.opts, text="稅率", text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left")
-        self.otax = ctk.CTkOptionMenu(self.opts, values=["5%", "0"], width=80)
+        # 與 CLI 一致的有效值：5%(含稅/外加)、(5%)(內含/不計稅)。不可用 "0"（Ragic 不認）
+        self.otax = ctk.CTkOptionMenu(self.opts, values=["5%", "(5%)"], width=80)
         self.otax.pack(side="left", padx=4)
 
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")

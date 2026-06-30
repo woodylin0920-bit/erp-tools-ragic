@@ -135,6 +135,7 @@ def create_outbound(records: dict, record_ids: list, warehouse_code: str,
     code_to_barcode = R.build_code_to_barcode(R.load_price_index())
 
     patched, msgs = 0, []
+    no_inv = set()   # 該倉無庫存編號的商品 → 出庫單缺扣庫存資料，需人工補
     for oid in new_ids:
         rec = after[oid]
         sub = rec.get(R.OUTBOUND_ITEMS_SUBTABLE_KEY, {})
@@ -154,6 +155,8 @@ def create_outbound(records: dict, record_ids: list, warehouse_code: str,
             if inv_code:
                 cell["3001124"] = warehouse_code
                 cell["3001126"] = inv_code
+            elif prod:
+                no_inv.add(prod)
             bars = code_to_barcode.get(prod, [])
             if bars:
                 cell[R.OUTBOUND_ROW_NOTE_CID] = f"【EAN】{bars[0]}"
@@ -171,4 +174,7 @@ def create_outbound(records: dict, record_ids: list, warehouse_code: str,
             progress("patch", patched, len(new_ids))
     if trigger_errs:
         msgs = [f"部分拋轉失敗（已建好的仍補欄位）：{'; '.join(trigger_errs[:5])}"] + msgs
+    if no_inv:
+        msgs.append(f"⚠ 下列商品在 {warehouse_code} 無庫存編號，出庫單缺扣庫存資料，請人工補："
+                    + "、".join(sorted(no_inv)[:8]))
     return {"triggered": triggered, "new": len(new_ids), "patched": patched, "msgs": msgs}
