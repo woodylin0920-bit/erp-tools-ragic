@@ -33,7 +33,12 @@ NAV = [
     ("開單", ["新建銷售單", "批次發樣"]),
     ("拋轉", ["建立出貨單", "建立出庫單"]),
     ("查詢與對帳", ["匯出庫存報表", "在途查詢", "電商對帳"]),
+    ("系統", ["設定"]),
 ]
+
+
+def has_api_key() -> bool:
+    return bool(os.environ.get("RAGIC_API_KEY") or R._KEY_FILE.exists())
 
 
 # ════════════════════════════════════════════════════════════
@@ -394,11 +399,79 @@ class PlaceholderScreen(Screen):
                      text_color=GRAY, font=ctk.CTkFont(size=14)).pack(pady=40)
 
 
+# ════════════════════════════════════════════════════════════
+#  設定（Ragic API Key）
+# ════════════════════════════════════════════════════════════
+class SettingsScreen(Screen):
+    def __init__(self, master):
+        super().__init__(master)
+        self.toolbar("設定")
+        wrap = ctk.CTkFrame(self, fg_color="transparent")
+        wrap.pack(fill="x", padx=26, pady=20)
+
+        ctk.CTkLabel(wrap, text="Ragic API Key", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w")
+        ctk.CTkLabel(wrap, text="可讀寫正式 ERP。從 Ragic 個人設定頁取得（已是 Base64 格式，整段貼上即可）。",
+                     text_color=GRAY, font=ctk.CTkFont(size=12)).pack(anchor="w", pady=(2, 2))
+        ctk.CTkLabel(wrap, text=f"儲存位置：{R._KEY_FILE}", text_color="#B0B0B5",
+                     font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(0, 10))
+
+        self.status = ctk.CTkLabel(wrap, text="", font=ctk.CTkFont(size=13))
+        self.status.pack(anchor="w", pady=(0, 8))
+
+        self.entry = ctk.CTkEntry(wrap, show="•", width=560, placeholder_text="貼上 Ragic API Key")
+        self.entry.pack(anchor="w", pady=4)
+
+        btns = ctk.CTkFrame(wrap, fg_color="transparent")
+        btns.pack(anchor="w", pady=(10, 0))
+        ctk.CTkButton(btns, text="儲存", fg_color=BLUE, width=90, command=self._save).pack(side="left")
+        ctk.CTkButton(btns, text="測試連線", fg_color="#8E8E93", width=100, command=self._test).pack(side="left", padx=8)
+        self.show_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(btns, text="顯示", variable=self.show_var, width=60,
+                        command=self._toggle_show, font=ctk.CTkFont(size=12)).pack(side="left", padx=8)
+
+        self._refresh_status()
+
+    def _refresh_status(self):
+        if has_api_key():
+            self.status.configure(text="● 目前已設定 API Key（如需更換，貼上新的後按儲存）", text_color=GREEN)
+        else:
+            self.status.configure(text="● 尚未設定 API Key —— 請貼上後按儲存才能使用各功能", text_color=ORANGE)
+
+    def _toggle_show(self):
+        self.entry.configure(show="" if self.show_var.get() else "•")
+
+    def _save(self):
+        key = self.entry.get().strip()
+        if not key:
+            mbox.showwarning("提醒", "請先貼上 API Key"); return
+        try:
+            R._KEY_FILE.write_text(key, encoding="utf-8")
+            os.environ["RAGIC_API_KEY"] = key
+        except Exception as e:
+            mbox.showerror("儲存失敗", str(e)); return
+        self.entry.delete(0, "end")
+        self._refresh_status()
+        mbox.showinfo("已儲存", "API Key 已儲存，立即生效。建議按「測試連線」確認。")
+
+    def _test(self):
+        if not has_api_key():
+            mbox.showwarning("提醒", "尚未設定 API Key"); return
+        self.status.configure(text="測試連線中…", text_color=GRAY)
+        self.run_async(lambda: len(R.load_customers()), self._test_done, self.status)
+
+    def _test_done(self, n):
+        if n > 0:
+            self.status.configure(text=f"✓ 連線成功（讀到 {n} 筆客戶），API Key 有效", text_color=GREEN)
+        else:
+            self.status.configure(text="⚠ 連線回傳 0 筆，請確認 API Key 是否正確/有權限", text_color=ORANGE)
+
+
 SCREENS = {
     "批次發樣": SampleOrderScreen,
     "在途查詢": InTransitScreen,
     "電商對帳": EcomScreen,
     "建立出貨單": DeliveryScreen,
+    "設定": SettingsScreen,
 }
 
 
@@ -420,7 +493,13 @@ class App(ctk.CTk):
         self.content_holder.grid(row=0, column=1, sticky="nsew")
         self.content_holder.grid_columnconfigure(0, weight=1)
         self.content_holder.grid_rowconfigure(0, weight=1)
-        self.show("批次發樣")
+        # 首次（或 Windows 新機）尚未設定金鑰 → 先進設定，避免功能畫面去問金鑰而卡住
+        if has_api_key():
+            self.show("批次發樣")
+        else:
+            self.show("設定")
+            self.after(300, lambda: mbox.showinfo(
+                "歡迎", "第一次使用：請先在「設定」貼上 Ragic API Key 並儲存，才能使用各功能。"))
 
     def _build_sidebar(self):
         bar = ctk.CTkFrame(self, width=248, corner_radius=0, fg_color="#F4F4F6")
@@ -440,6 +519,11 @@ class App(ctk.CTk):
                 self.nav_btns[label] = btn
 
     def show(self, label):
+        # 沒設金鑰時，其他功能會去問金鑰(questionary)→GUI 內回 None→sys.exit 關掉程式。
+        # 故無金鑰時一律導到「設定」，逼先填 key。
+        if label != "設定" and not has_api_key():
+            mbox.showwarning("尚未設定", "請先到「設定」填入 Ragic API Key。")
+            label = "設定"
         for lb, btn in self.nav_btns.items():
             active = lb == label
             btn.configure(fg_color=BLUE if active else "transparent",
