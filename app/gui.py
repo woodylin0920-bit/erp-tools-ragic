@@ -639,13 +639,27 @@ class NewSalesScreen(Screen):
             self.dry_switch.pack(side="right")
         self.toolbar("新建銷售單（讀客戶 Excel）", right=dry)
 
+        self._picked = None     # 透過「選擇檔案」丟進來的檔（不在 client_order/）
+
         top = ctk.CTkFrame(self, fg_color="transparent")
-        top.pack(fill="x", padx=24, pady=(14, 6))
+        top.pack(fill="x", padx=24, pady=(14, 2))
         ctk.CTkLabel(top, text="待處理檔案", text_color=GRAY, font=ctk.CTkFont(size=13)).pack(side="left")
-        self.file_menu = ctk.CTkOptionMenu(top, values=["（讀取中…）"], width=380,
-                                           command=lambda v: self._clear_preview())
+        self.file_menu = ctk.CTkOptionMenu(top, values=["（讀取中…）"], width=300,
+                                           command=lambda v: self._on_dropdown())
         self.file_menu.pack(side="left", padx=10)
-        ctk.CTkButton(top, text="解析預覽", fg_color="#8E8E93", width=100, command=self._do_preview).pack(side="left")
+        ctk.CTkButton(top, text="選擇檔案…", fg_color="#8E8E93", width=100,
+                      command=self._pick_file).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(top, text="解析預覽", fg_color=BLUE, width=100, command=self._do_preview).pack(side="left")
+
+        # 選檔列：顯示選到的檔 + 格式（檔案不在 client_order/ 時需指定）
+        pickrow = ctk.CTkFrame(self, fg_color="transparent")
+        pickrow.pack(fill="x", padx=24, pady=(0, 4))
+        self.picked_label = ctk.CTkLabel(pickrow, text="（或按「選擇檔案」從電腦任意位置丟一個 Excel 進來）",
+                                         text_color=GRAY, font=ctk.CTkFont(size=12))
+        self.picked_label.pack(side="left")
+        ctk.CTkLabel(pickrow, text="格式", text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left", padx=(14, 2))
+        self.fmt = ctk.CTkOptionMenu(pickrow, values=["TRU", "LE", "TEMPLATE"], width=110)
+        self.fmt.pack(side="left")
 
         self.opts = ctk.CTkFrame(self, fg_color="transparent")
         self.opts.pack(fill="x", padx=24, pady=4)
@@ -681,23 +695,53 @@ class NewSalesScreen(Screen):
         self.status.configure(text=f"找到 {len(files)} 個待處理檔案")
 
     def _clear_preview(self):
-        """切換檔案時清掉舊預覽，避免對 A 的預覽按到 B。"""
         self.preview = []
         self._preview_file = None
         for w in self.scroll.winfo_children():
             w.destroy()
+
+    def _on_dropdown(self):
+        """選了 client_order/ 內的檔 → 清掉「選擇檔案」來源。"""
+        self._picked = None
+        self.picked_label.configure(text="（或按「選擇檔案」從電腦任意位置丟一個 Excel 進來）")
+        self._clear_preview()
         self.status.configure(text="已切換檔案，請按「解析預覽」")
 
-    def _do_preview(self):
+    def _pick_file(self):
+        import tkinter.filedialog as fd
+        import pathlib
+        path = fd.askopenfilename(title="選擇客戶訂單 Excel",
+                                  filetypes=[("Excel", "*.xlsx"), ("所有檔案", "*.*")])
+        if not path:
+            return
+        p = pathlib.Path(path)
+        self._picked = p
+        self.picked_label.configure(text=f"已選：{p.name}", text_color="#1C1C1E")
+        # 父資料夾若是已知格式就自動帶（如 …/TRU/xxx.xlsx）
+        parent = p.parent.name.upper()
+        if parent in ("TRU", "LE", "TEMPLATE"):
+            self.fmt.set(parent)
+        self._clear_preview()
+        self.status.configure(text=f"已選檔案，格式={self.fmt.get()}，請按「解析預覽」")
+
+    def _active_source(self):
+        """回 (檔路徑, 格式 or None, 是否來自 client_order)。優先用選擇的檔。"""
+        if self._picked:
+            return self._picked, self.fmt.get(), False
         f = self.files.get(self.file_menu.get())
+        return f, None, True   # client_order/ 內的檔，格式由父資料夾推斷
+
+    def _do_preview(self):
+        f, fmt, _ = self._active_source()
         if not f:
             mbox.showwarning("提醒", "沒有可解析的檔案"); return
-        self._preview_file = f   # 綁定預覽的檔，開單/移檔都用這個（避免下拉被改後移錯檔）
+        self._preview_file = f
         self.status.configure(text="解析中…")
 
         def work():
-            return self.SLC.preview_file(f, self.price_index, self.customers)
-        self.run_async(work, self._previewed, self.status)
+            return self.SLC.preview_file(f, self.price_index, self.customers, client=fmt)
+        self.run_async(work, self._previewed, self.status, on_error=lambda e: (
+            self.status.configure(text="解析失敗"), mbox.showerror("解析失敗", str(e))))
 
     def _previewed(self, preview):
         self.preview = preview
@@ -778,7 +822,9 @@ class NewSalesScreen(Screen):
         all_done = all(self._creatable(p) for p in self.preview)
         moved = False
         f = getattr(self, "_active_file", None)
-        if f and not fail and (ok or dup) and all_done:
+        # 只搬 client_order/ 內的檔到 done/；「選擇檔案」丟進來的外部檔不動（不在電腦亂建 done/）
+        from_pending = bool(f) and f in self.files.values()
+        if f and from_pending and not fail and (ok or dup) and all_done:
             try:
                 import shutil
                 done_dir = f.parent / "done"

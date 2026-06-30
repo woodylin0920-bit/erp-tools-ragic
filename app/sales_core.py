@@ -14,16 +14,17 @@ def list_pending() -> list:
     return R.find_pending_files(R.BASE_CLIENT_ORDER)
 
 
-def parse_file(path) -> tuple:
-    """回 (client_code, orders)；不支援的客群或解析失敗會 raise。"""
+def parse_file(path, client: str = None) -> tuple:
+    """回 (client_code, orders)。client 可指定格式（GUI 選檔用，檔案不在 client_order/ 時）；
+    未指定則用父資料夾名推斷。不支援的格式或解析失敗會 raise。"""
     from parsers import PARSERS
-    client = path.parent.name.upper()
-    if client not in PARSERS:
-        raise ValueError(f"不支援的客戶代碼：{client}（支援：{', '.join(PARSERS)}）")
-    orders = PARSERS[client](str(path)).parse()
+    code = (client or path.parent.name).upper()
+    if code not in PARSERS:
+        raise ValueError(f"不支援的格式：{code}（支援：{', '.join(PARSERS)}）")
+    orders = PARSERS[code](str(path)).parse()
     if not orders:
         raise ValueError("無法解析任何訂單，請確認檔案格式")
-    return client, orders
+    return code, orders
 
 
 def match_customer(customers: list, store_code: str, client_code: str) -> Optional[dict]:
@@ -33,10 +34,10 @@ def match_customer(customers: list, store_code: str, client_code: str) -> Option
     return matches[0] if len(matches) == 1 else None
 
 
-def preview_file(path, price_index: dict, customers: list) -> list:
+def preview_file(path, price_index: dict, customers: list, client: str = None) -> list:
     """解析整檔，回每張訂單的預覽（不寫入）。
     [{store, po, customer, customer_missing, items, box_notes, ambiguous, subtotal}]"""
-    client, orders = parse_file(path)
+    client, orders = parse_file(path, client)
     out = []
     for order in orders:
         cust = match_customer(customers, order.store_code, client)
