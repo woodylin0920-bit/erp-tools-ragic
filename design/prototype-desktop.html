@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>潮玩波普 ERP — 桌面版原型</title>
+<style>
+  :root{
+    --blue:#007AFF; --green:#34C759; --red:#FF3B30; --orange:#FF9500; --indigo:#5856D6;
+    --label:#1C1C1E; --label2:#6C6C70; --label3:#B0B0B5;
+    --sep:#0000000f; --sidebar:#F4F4F6; --card:#FFFFFF; --fill:#7878801a;
+    --field:#7878801f;
+    --font:-apple-system,"SF Pro Text","SF Pro Display","Helvetica Neue",
+           "PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased;}
+  body{font-family:var(--font);background:#D9D9DE;color:var(--label);
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;
+    padding:40px 20px;line-height:1.4;}
+  .board-title{font-size:26px;font-weight:700;letter-spacing:-.02em;margin-bottom:6px;}
+  .board-sub{color:var(--label2);font-size:14px;margin-bottom:32px;}
+
+  /* macOS window */
+  .window{width:1080px;height:700px;background:var(--card);border-radius:12px;
+    overflow:hidden;display:flex;box-shadow:0 24px 70px rgba(0,0,0,.32),0 0 0 .5px rgba(0,0,0,.1);}
+
+  /* Sidebar */
+  .sidebar{width:248px;background:var(--sidebar);border-right:.5px solid var(--sep);
+    display:flex;flex-direction:column;flex-shrink:0;}
+  .traffic{display:flex;gap:8px;padding:18px 18px 14px;}
+  .dot{width:12px;height:12px;border-radius:50%;}
+  .dot.r{background:#FF5F57;} .dot.y{background:#FEBC2E;} .dot.g{background:#28C840;}
+  .app-name{padding:2px 20px 14px;font-size:13px;font-weight:700;color:var(--label2);letter-spacing:.02em;}
+  .nav{flex:1;overflow-y:auto;padding:0 10px;}
+  .nav-sec{font-size:11px;color:var(--label3);font-weight:600;letter-spacing:.04em;
+    text-transform:uppercase;padding:14px 10px 5px;}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:7px;
+    font-size:14px;color:var(--label);cursor:default;margin-bottom:1px;}
+  .nav-item .ic{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;
+    justify-content:center;font-size:13px;flex-shrink:0;}
+  .nav-item.active{background:var(--blue);color:#fff;}
+  .nav-item.active .ic{background:rgba(255,255,255,.25)!important;}
+  .sidebar-foot{padding:10px 14px 16px;border-top:.5px solid var(--sep);}
+  .foot-row{display:flex;align-items:center;justify-content:space-between;padding:6px 6px;font-size:13px;}
+
+  /* Content */
+  .content{flex:1;display:flex;flex-direction:column;background:var(--card);min-width:0;}
+  .toolbar{height:52px;border-bottom:.5px solid var(--sep);display:flex;align-items:center;
+    justify-content:space-between;padding:0 22px;flex-shrink:0;}
+  .toolbar h1{font-size:16px;font-weight:600;}
+  .dry{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--label2);}
+  .switch{width:40px;height:24px;border-radius:13px;background:#78788040;position:relative;}
+  .switch.on{background:var(--green);}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;
+    border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);}
+  .switch.on::after{left:18px;}
+
+  .scroll{flex:1;overflow-y:auto;padding:24px 26px;}
+  .segmented{display:inline-flex;background:var(--fill);border-radius:8px;padding:2px;margin-bottom:22px;}
+  .seg{padding:7px 22px;font-size:13px;font-weight:600;border-radius:6px;color:var(--label);}
+  .seg.active{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.14);}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  .panel{border:.5px solid var(--sep);border-radius:12px;overflow:hidden;}
+  .panel-hd{padding:11px 16px;font-size:13px;font-weight:600;color:var(--label2);
+    background:#FAFAFB;border-bottom:.5px solid var(--sep);display:flex;justify-content:space-between;align-items:center;}
+  .panel-hd a{color:var(--blue);font-weight:600;}
+  .panel-bd{padding:6px 0;}
+  .li{display:flex;align-items:center;gap:11px;padding:9px 16px;font-size:14px;position:relative;}
+  .li + .li::before{content:"";position:absolute;top:0;left:16px;right:16px;height:.5px;background:var(--sep);}
+  .li .sub{color:var(--label2);font-size:12px;margin-top:1px;}
+  .li .q{margin-left:auto;color:var(--label2);font-size:13px;}
+  .check{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--label3);flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;}
+  .check.on{background:var(--blue);border-color:var(--blue);}
+  .field{margin:8px 14px 10px;background:var(--field);border-radius:8px;padding:7px 11px;
+    font-size:13px;color:var(--label2);display:flex;align-items:center;gap:7px;}
+
+  .actionbar{border-top:.5px solid var(--sep);padding:14px 26px;display:flex;
+    align-items:center;justify-content:space-between;flex-shrink:0;}
+  .summary{font-size:13px;color:var(--label2);}
+  .summary b{color:var(--label);font-weight:600;}
+  .btn{padding:9px 22px;border-radius:9px;font-size:14px;font-weight:600;color:#fff;background:var(--blue);}
+</style>
+</head>
+<body>
+  <div class="board-title">潮玩波普 ERP · 桌面版原型</div>
+  <div class="board-sub">macOS 視窗 · 左功能列 + 右內容 · 雙欄利用寬度 · 沿用 Apple 視覺</div>
+
+  <div class="window">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="traffic"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+      <div class="app-name">潮玩波普 ERP</div>
+      <div class="nav">
+        <div class="nav-sec">開單</div>
+        <div class="nav-item"><span class="ic" style="background:#34C75922">📄</span>新建銷售單</div>
+        <div class="nav-item active"><span class="ic" style="background:#FF950022">🎁</span>批次發樣</div>
+        <div class="nav-sec">拋轉（出庫才扣庫存）</div>
+        <div class="nav-item"><span class="ic" style="background:#007AFF22">🚚</span>建立出貨單</div>
+        <div class="nav-item"><span class="ic" style="background:#5856D622">📦</span>建立出庫單</div>
+        <div class="nav-sec">查詢與對帳</div>
+        <div class="nav-item"><span class="ic" style="background:#FF2D5522">📊</span>匯出庫存報表</div>
+        <div class="nav-item"><span class="ic" style="background:#AF52DE22">🚢</span>在途查詢</div>
+        <div class="nav-item"><span class="ic" style="background:#FF950022">🛒</span>電商對帳</div>
+      </div>
+      <div class="sidebar-foot">
+        <div class="foot-row"><span>預覽模式</span><span class="switch on"></span></div>
+        <div class="foot-row" style="color:var(--label2)"><span>⚙︎ 設定</span></div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <div class="toolbar">
+        <h1>批次發樣</h1>
+        <div class="dry">預覽模式（不寫入）<span class="switch on"></span></div>
+      </div>
+
+      <div class="scroll">
+        <div class="segmented">
+          <div class="seg active">樣品申請</div>
+          <div class="seg">公關品</div>
+          <div class="seg">活動贈品</div>
+        </div>
+
+        <div class="cols">
+          <!-- 組合 -->
+          <div class="panel">
+            <div class="panel-hd"><span>樣品組合：MoCii小汐新品</span><a>編輯</a></div>
+            <div class="panel-bd">
+              <div class="li">BMC011-1 · 小汐蛻變單盒<span class="q">×3</span></div>
+              <div class="li">DSP016-1 · 小汐展示架<span class="q">×1</span></div>
+            </div>
+            <div class="field" style="margin-top:0">＋ 套用其他組合 / 新建</div>
+          </div>
+
+          <!-- 客戶 -->
+          <div class="panel">
+            <div class="panel-hd"><span>發給客戶</span><span style="color:var(--blue)">已選 2</span></div>
+            <div class="field">🔍 搜尋客戶（中文 / 代號）</div>
+            <div class="panel-bd" style="max-height:230px;overflow-y:auto;padding-top:0">
+              <div class="li"><span class="check on">✓</span>TRU-4463 林口三井</div>
+              <div class="li"><span class="check on">✓</span>展會顧客</div>
+              <div class="li"><span class="check">　</span>尚旺百貨</div>
+              <div class="li"><span class="check">　</span>哈玩聚國際行銷</div>
+              <div class="li"><span class="check">　</span>過癮萬事屋</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="actionbar">
+        <div class="summary">將開立 <b>2 張</b>「樣品申請」單 · 單價全 0 · 狀態未出貨</div>
+        <div class="btn">預覽 2 張單 →</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
