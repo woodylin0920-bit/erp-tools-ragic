@@ -658,9 +658,12 @@ def _mid_pack_size(matches) -> Optional[int]:
     return None
 
 
-def resolve_items(order_items, price_index: dict, auto_unit_spec: bool = False) -> list:
+def resolve_items(order_items, price_index: dict, auto_unit_spec: bool = False,
+                  auto_pick_ambiguous: bool = False) -> list:
     """
     auto_unit_spec=True：數量單位為「個/盒」時自動選 spec=1（LE 格式適用）
+    auto_pick_ambiguous=True：同條碼多規格時不互動詢問、自動取最小規格（GUI 用，
+        會在 box_note 標記提醒人工複核）。預設 False＝維持 CLI 互動行為。
 
     另外：TRU 等以 PCS 下單的格式，若某 SKU 的 PCS 無法整除「中盒」入數，
     通常是客戶填錯，會在該項標記 box_note，最後寫進訂單內部備注提醒人工確認。
@@ -702,6 +705,10 @@ def resolve_items(order_items, price_index: dict, auto_unit_spec: bool = False) 
                     product, final_qty = unit_options[0]
                 else:
                     product, final_qty = viable[0]
+            elif auto_pick_ambiguous:
+                # GUI：不互動，自動取最小規格（viable 已升冪），稍後在 box_note 提醒人工複核
+                product, final_qty = viable[0]
+                item._ambiguous = True
             else:
                 choices = [
                     f"{m['unit']} × {n}"

@@ -513,6 +513,193 @@ class OutboundScreen(Screen):
 
 
 # ════════════════════════════════════════════════════════════
+#  匯出庫存報表（讀 Ragic、輸出本機 Excel；不寫 ERP）
+# ════════════════════════════════════════════════════════════
+class ExportScreen(Screen):
+    def __init__(self, master):
+        super().__init__(master)
+        import export_core as EC
+        self.EC = EC
+        self.toolbar("匯出庫存報表（Excel）")
+        form = ctk.CTkFrame(self, fg_color="transparent")
+        form.pack(fill="x", padx=26, pady=18)
+
+        ctk.CTkLabel(form, text="倉庫", text_color=GRAY, font=ctk.CTkFont(size=13)).grid(row=0, column=0, sticky="w", pady=6)
+        self.wh = ctk.CTkOptionMenu(form, values=["（讀取中…）"], width=240, fg_color=BLUE)
+        self.wh.grid(row=0, column=1, sticky="w", padx=12, pady=6)
+        ctk.CTkLabel(form, text="模板", text_color=GRAY, font=ctk.CTkFont(size=13)).grid(row=1, column=0, sticky="w", pady=6)
+        self.tpls = {t.name: t for t in EC.list_templates()}
+        self.tpl = ctk.CTkOptionMenu(form, values=list(self.tpls) or ["（無模板，請放入 templates/）"], width=360)
+        self.tpl.grid(row=1, column=1, sticky="w", padx=12, pady=6)
+
+        ctk.CTkButton(self, text="匯出", fg_color=BLUE, width=120, height=38,
+                      font=ctk.CTkFont(size=14, weight="bold"), command=self._export).pack(anchor="w", padx=26, pady=(6, 4))
+        self.status = ctk.CTkLabel(self, text="選倉庫與模板後按匯出（讀庫存填模板，輸出到 exports/）",
+                                   text_color=GRAY, font=ctk.CTkFont(size=13))
+        self.status.pack(anchor="w", padx=26, pady=8)
+        self.run_async(EC.load_warehouses, self._loaded, self.status)
+
+    def _loaded(self, whs):
+        order = sorted(whs.keys(), key=lambda w: (0 if w == "TW01" else 1, w))
+        self.wh.configure(values=[f"{w}  {whs[w]}" for w in order] or ["（無倉庫）"])
+        if order:
+            self.wh.set(f"{order[0]}  {whs[order[0]]}")
+
+    def _export(self):
+        if not self.tpls:
+            mbox.showwarning("提醒", "templates/ 內沒有模板"); return
+        wh = self.wh.get().split("  ")[0].strip()
+        tpl = self.tpls.get(self.tpl.get())
+        if not tpl:
+            mbox.showwarning("提醒", "請選模板"); return
+        self.status.configure(text="匯出中（讀庫存、填模板）…")
+
+        def work():
+            return self.EC.export_to_template(wh, tpl, R.load_price_index())
+        self.run_async(work, self._done, self.status)
+
+    def _done(self, result):
+        out_path, filled, skipped = result
+        self.status.configure(text=f"✓ 完成！填入 {filled} 筆（略過 {skipped} 單盒項目）")
+        if mbox.askyesno("完成", f"已輸出：\n{out_path}\n\n填入 {filled} 筆。要打開資料夾嗎？"):
+            import subprocess
+            import platform
+            folder = str(out_path.parent)
+            try:
+                if platform.system() == "Darwin":
+                    subprocess.run(["open", folder])
+                elif platform.system() == "Windows":
+                    os.startfile(folder)   # noqa
+                else:
+                    subprocess.run(["xdg-open", folder])
+            except Exception:
+                pass
+
+
+# ════════════════════════════════════════════════════════════
+#  新建銷售單（讀客戶 Excel → 開銷貨單；寫入）
+# ════════════════════════════════════════════════════════════
+class NewSalesScreen(Screen):
+    def __init__(self, master):
+        super().__init__(master)
+        import sales_core as SLC
+        self.SLC = SLC
+        self.preview = []
+        self.customers = []
+        self.price_index = {}
+
+        def dry(bar):
+            self.dry_switch = ctk.CTkSwitch(bar, text="預覽模式（不寫入）", progress_color=GREEN,
+                                            font=ctk.CTkFont(size=12))
+            self.dry_switch.select()
+            self.dry_switch.pack(side="right")
+        self.toolbar("新建銷售單（讀客戶 Excel）", right=dry)
+
+        top = ctk.CTkFrame(self, fg_color="transparent")
+        top.pack(fill="x", padx=24, pady=(14, 6))
+        ctk.CTkLabel(top, text="待處理檔案", text_color=GRAY, font=ctk.CTkFont(size=13)).pack(side="left")
+        self.file_menu = ctk.CTkOptionMenu(top, values=["（讀取中…）"], width=380)
+        self.file_menu.pack(side="left", padx=10)
+        ctk.CTkButton(top, text="解析預覽", fg_color="#8E8E93", width=100, command=self._do_preview).pack(side="left")
+
+        self.opts = ctk.CTkFrame(self, fg_color="transparent")
+        self.opts.pack(fill="x", padx=24, pady=4)
+        ctk.CTkLabel(self.opts, text="單別", text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left")
+        self.otype = ctk.CTkOptionMenu(self.opts, values=["一般訂單", "經銷商", "寄賣訂單"], width=130)
+        self.otype.pack(side="left", padx=(4, 14))
+        ctk.CTkLabel(self.opts, text="狀態", text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left")
+        self.ostat = ctk.CTkOptionMenu(self.opts, values=["未出貨", "預接單", "已收款未出貨"], width=130)
+        self.ostat.pack(side="left", padx=(4, 14))
+        ctk.CTkLabel(self.opts, text="稅率", text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left")
+        self.otax = ctk.CTkOptionMenu(self.opts, values=["5%", "0"], width=80)
+        self.otax.pack(side="left", padx=4)
+
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll.pack(fill="both", expand=True, padx=18, pady=8)
+        bar = ctk.CTkFrame(self, height=60, fg_color="#FAFAFB")
+        bar.pack(fill="x", side="bottom")
+        self.status = ctk.CTkLabel(bar, text="", text_color=GRAY, font=ctk.CTkFont(size=12))
+        self.status.pack(side="left", padx=24)
+        self.go = ctk.CTkButton(bar, text="開立", fg_color=BLUE, height=36, width=140,
+                                font=ctk.CTkFont(size=14, weight="bold"), command=self._go)
+        self.go.pack(side="right", padx=24, pady=12)
+
+        self.run_async(lambda: (R.load_price_index(), R.load_customers(), SLC.list_pending()), self._loaded)
+
+    def _loaded(self, data):
+        self.price_index, self.customers, files = data
+        self.files = {f"{f.parent.name}/{f.name}": f for f in files}
+        names = list(self.files) or ["（client_order/ 內無待處理檔案）"]
+        self.file_menu.configure(values=names)
+        self.file_menu.set(names[0])
+        self.status.configure(text=f"找到 {len(files)} 個待處理檔案")
+
+    def _do_preview(self):
+        f = self.files.get(self.file_menu.get())
+        if not f:
+            mbox.showwarning("提醒", "沒有可解析的檔案"); return
+        self.status.configure(text="解析中…")
+
+        def work():
+            return self.SLC.preview_file(f, self.price_index, self.customers)
+        self.run_async(work, self._previewed, self.status)
+
+    def _previewed(self, preview):
+        self.preview = preview
+        for w in self.scroll.winfo_children():
+            w.destroy()
+        for p in preview:
+            card = ctk.CTkFrame(self.scroll, border_width=1, border_color=CARD_BORDER, corner_radius=10)
+            card.pack(fill="x", padx=6, pady=5)
+            cust = p["customer"]["name"] if p["customer"] else "⚠ 對不到客戶（需先建檔）"
+            color = ORANGE if p["customer_missing"] else "#1C1C1E"
+            ctk.CTkLabel(card, text=f"門市 {p['store']} · PO {p['po']} · {cust}",
+                         font=ctk.CTkFont(size=13, weight="bold"), text_color=color).pack(anchor="w", padx=14, pady=(9, 2))
+            for it in p["items"]:
+                ctk.CTkLabel(card, text=f"   {it['product_code']:<10} {it['product_name'][:18]} {it['unit']} ×{it['quantity']} @ {it['unit_price']:g}",
+                             font=ctk.CTkFont(size=12)).pack(anchor="w", padx=14)
+            if p["box_notes"]:
+                ctk.CTkLabel(card, text="   ⚠ " + "；".join(p["box_notes"]), text_color=ORANGE,
+                             font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14)
+            if p["ambiguous"]:
+                ctk.CTkLabel(card, text="   ⚠ 有多規格商品自動取最小規格，請複核", text_color=ORANGE,
+                             font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14)
+            ctk.CTkLabel(card, text="", height=4).pack()
+        ok = sum(1 for p in preview if not p["customer_missing"])
+        self.status.configure(text=f"解析 {len(preview)} 張訂單，可開立 {ok}（對不到客戶的會跳過）")
+
+    def _go(self):
+        if not self.preview:
+            mbox.showwarning("提醒", "請先解析預覽"); return
+        creatable = [p for p in self.preview if not p["customer_missing"]]
+        if not creatable:
+            mbox.showwarning("提醒", "沒有可開立的訂單（客戶都對不到，請先建檔）"); return
+        ot, ost, tax = self.otype.get(), self.ostat.get(), self.otax.get()
+        if self.dry_switch.get():
+            mbox.showinfo("預覽（未寫入）",
+                          f"將開立 {len(creatable)} 張銷貨單（單別 {ot} / 狀態 {ost} / 稅率 {tax}）。\n"
+                          "關閉「預覽模式」後再按開立才會實際寫入。")
+            return
+        if not mbox.askyesno("確認開立", f"確定開立 {len(creatable)} 張銷貨單到 Ragic？"):
+            return
+
+        def work():
+            res = []
+            for p in creatable:
+                res.append(self.SLC.create_order(p["customer"], p["items"], ot, ost, tax, commit=True))
+            return res
+        self.go.configure(state="disabled", text="開立中…")
+        self.run_async(work, self._created)
+
+    def _created(self, res):
+        self.go.configure(state="normal", text="開立")
+        ok = sum(1 for r in res if r["ok"])
+        fail = [r["msg"] for r in res if not r["ok"]]
+        mbox.showinfo("結果", f"完成！{ok}/{len(res)} 張已建立。" +
+                      ("\n\n失敗：\n" + "\n".join(fail[:8]) if fail else ""))
+
+
+# ════════════════════════════════════════════════════════════
 #  尚未搬入的功能（佔位）
 # ════════════════════════════════════════════════════════════
 class PlaceholderScreen(Screen):
@@ -591,11 +778,13 @@ class SettingsScreen(Screen):
 
 
 SCREENS = {
+    "新建銷售單": NewSalesScreen,
     "批次發樣": SampleOrderScreen,
     "在途查詢": InTransitScreen,
     "電商對帳": EcomScreen,
     "建立出貨單": DeliveryScreen,
     "建立出庫單": OutboundScreen,
+    "匯出庫存報表": ExportScreen,
     "設定": SettingsScreen,
 }
 
