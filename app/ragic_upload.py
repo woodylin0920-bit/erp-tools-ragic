@@ -706,9 +706,17 @@ def resolve_items(order_items, price_index: dict, auto_unit_spec: bool = False,
                 else:
                     product, final_qty = viable[0]
             elif auto_pick_ambiguous:
-                # GUI：不互動，自動取最小規格（viable 已升冪），稍後在 box_note 提醒人工複核
-                product, final_qty = viable[0]
-                item._ambiguous = True
+                # GUI：不互動。TRU 等「我們發中盒」→ 自動選中盒（_mid_pack_size），
+                # 與 CLI 人工選的一致。選不到中盒（多為客戶填錯非整除）→ 標 _ambiguous，
+                # GUI 會排除此單、請改用 CLI 人工選規格，避免開錯 SKU。
+                mid = _mid_pack_size(matches)
+                pick = next(((m, n) for m, n in viable
+                             if mid and (int(float(m["spec"])) if m["spec"] else 1) == mid), None)
+                if pick:
+                    product, final_qty = pick
+                else:
+                    product, final_qty = viable[0]
+                    item._ambiguous = True
             else:
                 choices = [
                     f"{m['unit']} × {n}"

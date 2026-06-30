@@ -662,31 +662,35 @@ class NewSalesScreen(Screen):
                 ctk.CTkLabel(card, text="   ⚠ " + "；".join(p["box_notes"]), text_color=ORANGE,
                              font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14)
             if p["ambiguous"]:
-                ctk.CTkLabel(card, text="   ⚠ 有多規格商品自動取最小規格，請複核", text_color=ORANGE,
+                ctk.CTkLabel(card, text="   ⛔ 規格需人工選（多規格），此單請改用 CLI 開立", text_color=RED,
                              font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14)
             ctk.CTkLabel(card, text="", height=4).pack()
-        ok = sum(1 for p in preview if not p["customer_missing"])
-        self.status.configure(text=f"解析 {len(preview)} 張訂單，可開立 {ok}（對不到客戶的會跳過）")
+        ok = sum(1 for p in preview if not p["customer_missing"] and not p["ambiguous"])
+        blocked = sum(1 for p in preview if p["customer_missing"] or p["ambiguous"])
+        self.status.configure(text=f"解析 {len(preview)} 張，可開立 {ok}（{blocked} 張對不到客戶或規格需人工，跳過）")
 
     def _go(self):
         if not self.preview:
             mbox.showwarning("提醒", "請先解析預覽"); return
-        creatable = [p for p in self.preview if not p["customer_missing"]]
+        # 排除：對不到客戶（需建檔）、規格歧義（需人工選，避免開錯 SKU）
+        creatable = [p for p in self.preview if not p["customer_missing"] and not p["ambiguous"]]
         if not creatable:
-            mbox.showwarning("提醒", "沒有可開立的訂單（客戶都對不到，請先建檔）"); return
+            mbox.showwarning("提醒", "沒有可安全開立的訂單（客戶對不到或規格需人工選，請用 CLI）"); return
         ot, ost, tax = self.otype.get(), self.ostat.get(), self.otax.get()
         if self.dry_switch.get():
             mbox.showinfo("預覽（未寫入）",
                           f"將開立 {len(creatable)} 張銷貨單（單別 {ot} / 狀態 {ost} / 稅率 {tax}）。\n"
                           "關閉「預覽模式」後再按開立才會實際寫入。")
             return
-        if not mbox.askyesno("確認開立", f"確定開立 {len(creatable)} 張銷貨單到 Ragic？"):
+        if not mbox.askyesno("確認開立", f"確定開立 {len(creatable)} 張銷貨單到 Ragic？\n（已自動防重複、帶入 PO#）"):
             return
 
         def work():
             res = []
             for p in creatable:
-                res.append(self.SLC.create_order(p["customer"], p["items"], ot, ost, tax, commit=True))
+                res.append(self.SLC.create_order(
+                    p["customer"], p["items"], ot, ost, tax,
+                    po_number=p["po"], client=p["client"], store=p["store"], commit=True))
             return res
         self.go.configure(state="disabled", text="開立中…")
         self.run_async(work, self._created)
@@ -694,9 +698,14 @@ class NewSalesScreen(Screen):
     def _created(self, res):
         self.go.configure(state="normal", text="開立")
         ok = sum(1 for r in res if r["ok"])
-        fail = [r["msg"] for r in res if not r["ok"]]
-        mbox.showinfo("結果", f"完成！{ok}/{len(res)} 張已建立。" +
-                      ("\n\n失敗：\n" + "\n".join(fail[:8]) if fail else ""))
+        dup = sum(1 for r in res if r.get("dup"))
+        fail = [r["msg"] for r in res if not r["ok"] and not r.get("dup")]
+        msg = f"完成！{ok}/{len(res)} 張已建立。"
+        if dup:
+            msg += f"\n防重複跳過 {dup} 張（之前已開過）。"
+        if fail:
+            msg += "\n\n失敗：\n" + "\n".join(fail[:8])
+        mbox.showinfo("結果", msg)
 
 
 # ════════════════════════════════════════════════════════════

@@ -54,17 +54,37 @@ def preview_file(path, price_index: dict, customers: list) -> list:
 
 
 def create_order(customer: dict, resolved: list, order_type: str, order_status: str,
-                 tax_rate: str, commit: bool = False) -> dict:
-    """開一張銷貨單。commit=False 只回 payload 不寫入。回 {ok, msg, ragic_id, payload}。"""
-    internal = "【程式建單·GUI】"
+                 tax_rate: str, po_number: str = "", client: str = "", store: str = "",
+                 commit: bool = False) -> dict:
+    """開一張銷貨單。commit=False 只回 payload 不寫入。回 {ok, msg, ragic_id, payload, log_key}。
+
+    防重複：以 client_store_PO 為鍵查/寫 upload_log（與 CLI process_file 一致）。
+    PO#：若有 po_number，寫進備註「PO#xxxx」，讓出庫流程下游能帶到。
+    """
+    log_key = f"{client}_{store}_{po_number}" if (client and store and po_number) else ""
+    if commit and log_key:
+        log = R._load_upload_log()
+        if log_key in log:
+            return {"ok": None, "msg": f"已開過（{log[log_key].get('uploaded_at','?')}），略過防重複",
+                    "ragic_id": str(log[log_key].get("ragic_id", "")), "payload": None,
+                    "log_key": log_key, "dup": True}
+    notes = f"PO#{po_number}" if po_number else ""
     payload = R.build_payload(customer, resolved, order_type, order_status,
-                              tax_rate=tax_rate, shipping_fee=0, notes="", internal_notes=internal)
+                              tax_rate=tax_rate, shipping_fee=0, notes=notes,
+                              internal_notes="【程式建單·GUI】")
     if not commit:
-        return {"ok": None, "msg": "dry-run", "ragic_id": "", "payload": payload}
+        return {"ok": None, "msg": "dry-run", "ragic_id": "", "payload": payload, "log_key": log_key}
     try:
         res = R.ragic_post(R.SALES_ORDER_SHEET, payload)
         ok = res.get("status") == "SUCCESS" or bool(res.get("ragicId"))
+        ragic_id = str(res.get("ragicId", ""))
+        if ok and log_key:
+            from datetime import datetime
+            log = R._load_upload_log()
+            log[log_key] = {"ragic_id": ragic_id,
+                            "uploaded_at": datetime.now().strftime("%Y/%m/%d %H:%M"), "file": "GUI"}
+            R._save_upload_log(log)
         return {"ok": ok, "msg": "" if ok else str(res.get("msg", res)),
-                "ragic_id": str(res.get("ragicId", "")), "payload": payload}
+                "ragic_id": ragic_id, "payload": payload, "log_key": log_key}
     except Exception as e:
-        return {"ok": False, "msg": str(e), "ragic_id": "", "payload": payload}
+        return {"ok": False, "msg": str(e), "ragic_id": "", "payload": payload, "log_key": log_key}
