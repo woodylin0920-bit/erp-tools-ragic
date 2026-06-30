@@ -389,6 +389,130 @@ class DeliveryScreen(Screen):
 
 
 # ════════════════════════════════════════════════════════════
+#  建立出庫單（出貨單拋轉，含拆盒；寫入）
+# ════════════════════════════════════════════════════════════
+class OutboundScreen(Screen):
+    def __init__(self, master):
+        super().__init__(master)
+        import outbound_core as OC
+        self.OC = OC
+        self.ctx = None
+        self.rows = []     # [(rid, label, var)]
+
+        def wh_box(bar):
+            self.wh = ctk.CTkOptionMenu(bar, values=["TW01"], width=180, fg_color=BLUE)
+            self.wh.pack(side="right")
+            ctk.CTkLabel(bar, text="倉庫", text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="right", padx=6)
+        self.toolbar("建立出庫單（出貨單拋轉）", right=wh_box)
+
+        self.status = ctk.CTkLabel(self, text="讀取出貨單與庫存…", text_color=GRAY, font=ctk.CTkFont(size=13))
+        self.status.pack(anchor="w", padx=26, pady=(12, 4))
+        self.search = ctk.CTkEntry(self, placeholder_text="篩選出貨單（單號 / 客戶）")
+        self.search.pack(fill="x", padx=24, pady=4)
+        self.search.bind("<KeyRelease>", lambda e: self._render_orders())
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent", height=240)
+        self.scroll.pack(fill="both", expand=True, padx=18, pady=8)
+
+        bar = ctk.CTkFrame(self, height=60, fg_color="#FAFAFB")
+        bar.pack(fill="x", side="bottom")
+        ctk.CTkButton(bar, text="預覽拆盒", fg_color="#8E8E93", height=36, width=120,
+                      command=self._preview).pack(side="right", padx=(8, 24), pady=12)
+        ctk.CTkButton(bar, text="拋轉並補資料", fg_color=BLUE, height=36, width=150,
+                      font=ctk.CTkFont(size=14, weight="bold"), command=self._execute).pack(side="right", pady=12)
+
+        self.run_async(OC.load_context, self._loaded, self.status)
+
+    def _loaded(self, ctx):
+        self.ctx = ctx
+        whs = sorted(ctx["warehouses"].keys(), key=lambda w: (0 if w == "TW01" else 1, w))
+        self.wh.configure(values=whs)
+        self.wh.set("TW01" if "TW01" in whs else (whs[0] if whs else "TW01"))
+        self._render_orders()
+
+    def _render_orders(self):
+        for w in self.scroll.winfo_children():
+            w.destroy()
+        self.rows = []
+        kw = self.search.get().strip().lower()
+        shown = 0
+        for c in self.ctx["candidates"]:
+            if kw and kw not in c["label"].lower():
+                continue
+            var = ctk.BooleanVar(value=False)
+            ctk.CTkCheckBox(self.scroll, text=c["label"], variable=var,
+                            font=ctk.CTkFont(size=13)).pack(anchor="w", padx=8, pady=2)
+            self.rows.append((c["id"], c["label"], var))
+            shown += 1
+            if shown >= 200:
+                break
+        self.status.configure(text=f"共 {len(self.ctx['candidates'])} 張出貨單，勾選後可預覽拆盒或拋轉")
+
+    def _selected_ids(self):
+        return [rid for rid, _, v in self.rows if v.get()]
+
+    def _plan(self):
+        ids = self._selected_ids()
+        if not ids:
+            mbox.showwarning("提醒", "請至少勾選一張出貨單"); return None, None
+        wh = self.wh.get()
+        plan = self.OC.break_plan(self.ctx["records"], ids, self.ctx["inventory"], wh)
+        return ids, plan
+
+    def _preview(self):
+        ids, plan = self._plan()
+        if ids is None:
+            return
+        auto = [p for p in plan if p["status"] == "ok"]
+        manual = [p for p in plan if p["status"] == "manual" and max(0, p["need"] - p["have"]) > 0]
+        issues = [p for p in plan if p["status"] in ("parent_short", "no_parent", "no_stock")]
+        lines = []
+        for p in auto:
+            lines.append(f"✓ {p['prod']} 客戶{p['need']} → 拆 {p['parent']} 中盒×{p['boxes']}（中盒 {p['parent_qty']}→{p['parent_qty']-p['boxes']}）")
+        for p in manual:
+            lines.append(f"⚠ {p['prod']} 客戶{p['need']}（非整中盒）→ 用散盒/拆實體 {p['boxes']} 盒")
+        for p in issues:
+            lines.append(f"⛔ {p['prod']} 客戶{p['need']} 中盒不足/查無 → 人工處理")
+        body = "\n".join(lines) if lines else "（無需拆盒）"
+        mbox.showinfo("拆盒預覽（未改任何庫存）", f"倉庫 {self.wh.get()}：\n\n{body}")
+
+    def _execute(self):
+        ids, plan = self._plan()
+        if ids is None:
+            return
+        wh = self.wh.get()
+        merged = self.OC.merge_breakbox(plan)
+        nbox = sum(m["boxes"] for m in merged.values())
+        msg = (f"確定執行？\n\n倉庫：{wh}\n出貨單：{len(ids)} 張\n"
+               f"拆盒：{len(merged)} 種中盒、共 {nbox} 盒（會改 20008 庫存）\n"
+               f"接著拋轉建立出庫單並自動補欄位。")
+        if not mbox.askyesno("確認執行（會寫入 ERP）", msg):
+            return
+        # 庫存編號：每商品在該倉若唯一自動帶，多筆取第一筆
+        prod_inv = {}
+        for p in self.OC.products_of(self.ctx["records"], ids):
+            opts = self.ctx["inv_by_wh_prod"].get((wh, p["prod"]), [])
+            if opts:
+                prod_inv[p["prod"]] = opts[0]
+
+        def work():
+            br = self.OC.apply_breakbox(merged) if merged else []
+            out = self.OC.create_outbound(self.ctx["records"], ids, wh, prod_inv)
+            return br, out
+        self.status.configure(text="執行中（拆盒→拋轉→補欄位）…")
+        self.run_async(work, self._executed)
+
+    def _executed(self, data):
+        br, out = data
+        bk_ok = sum(1 for _, ok, _ in br if ok)
+        lines = [f"拆盒：{bk_ok}/{len(br)} 種中盒已改",
+                 f"拋轉：觸發 {out['triggered']} 張、新出庫單 {out['new']} 張、補欄位 {out['patched']} 張"]
+        if out["msgs"]:
+            lines += ["", "提醒："] + out["msgs"]
+        self.status.configure(text="完成，請至 Ragic 出庫單頁面確認")
+        mbox.showinfo("結果", "\n".join(lines))
+
+
+# ════════════════════════════════════════════════════════════
 #  尚未搬入的功能（佔位）
 # ════════════════════════════════════════════════════════════
 class PlaceholderScreen(Screen):
@@ -471,6 +595,7 @@ SCREENS = {
     "在途查詢": InTransitScreen,
     "電商對帳": EcomScreen,
     "建立出貨單": DeliveryScreen,
+    "建立出庫單": OutboundScreen,
     "設定": SettingsScreen,
 }
 
