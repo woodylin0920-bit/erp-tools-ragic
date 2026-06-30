@@ -638,7 +638,8 @@ class NewSalesScreen(Screen):
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", padx=24, pady=(14, 6))
         ctk.CTkLabel(top, text="待處理檔案", text_color=GRAY, font=ctk.CTkFont(size=13)).pack(side="left")
-        self.file_menu = ctk.CTkOptionMenu(top, values=["（讀取中…）"], width=380)
+        self.file_menu = ctk.CTkOptionMenu(top, values=["（讀取中…）"], width=380,
+                                           command=lambda v: self._clear_preview())
         self.file_menu.pack(side="left", padx=10)
         ctk.CTkButton(top, text="解析預覽", fg_color="#8E8E93", width=100, command=self._do_preview).pack(side="left")
 
@@ -674,10 +675,19 @@ class NewSalesScreen(Screen):
         self.file_menu.set(names[0])
         self.status.configure(text=f"找到 {len(files)} 個待處理檔案")
 
+    def _clear_preview(self):
+        """切換檔案時清掉舊預覽，避免對 A 的預覽按到 B。"""
+        self.preview = []
+        self._preview_file = None
+        for w in self.scroll.winfo_children():
+            w.destroy()
+        self.status.configure(text="已切換檔案，請按「解析預覽」")
+
     def _do_preview(self):
         f = self.files.get(self.file_menu.get())
         if not f:
             mbox.showwarning("提醒", "沒有可解析的檔案"); return
+        self._preview_file = f   # 綁定預覽的檔，開單/移檔都用這個（避免下拉被改後移錯檔）
         self.status.configure(text="解析中…")
 
         def work():
@@ -736,7 +746,7 @@ class NewSalesScreen(Screen):
         if not mbox.askyesno("確認開立", f"確定開立 {len(creatable)} 張銷貨單到 Ragic？\n（已自動防重複、帶入 PO#）"):
             return
 
-        self._active_file = self.files.get(self.file_menu.get())
+        self._active_file = getattr(self, "_preview_file", None)   # 用「預覽時」的檔，不看現在下拉
 
         def work():
             res = []

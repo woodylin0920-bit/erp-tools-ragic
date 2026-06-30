@@ -99,10 +99,17 @@ def create_outbound(records: dict, record_ids: list, warehouse_code: str,
         raise RuntimeError("找不到「建立出庫單」按鈕")
     before = set(R.ragic_get(R.OUTBOUND_ORDER_SHEET).keys())
     triggered = 0
+    trigger_errs = []
     for rid in record_ids:
-        res = R.ragic_trigger_button(R.DELIVERY_ORDER_SHEET, rid, bid)
-        if res.get("status") == "SUCCESS":
-            triggered += 1
+        # 單張觸發失敗(逾時/HTTP錯)不可中斷：否則前面已建好的出庫單會漏補欄位。
+        try:
+            res = R.ragic_trigger_button(R.DELIVERY_ORDER_SHEET, rid, bid)
+            if res.get("status") == "SUCCESS":
+                triggered += 1
+            else:
+                trigger_errs.append(f"{rid}: {res.get('msg', res)}")
+        except Exception as e:
+            trigger_errs.append(f"{rid}: {e}")
         if progress:
             progress("trigger", triggered, len(record_ids))
     time.sleep(3)
@@ -110,7 +117,7 @@ def create_outbound(records: dict, record_ids: list, warehouse_code: str,
     new_ids = set(after.keys()) - before
     if not new_ids:
         return {"triggered": triggered, "new": 0, "patched": 0,
-                "msgs": ["未偵測到新出庫單（可能被擋重複拋轉）"]}
+                "msgs": ["未偵測到新出庫單（可能被擋重複拋轉）"] + trigger_errs}
 
     shipno_cust = {str(records[r].get("出貨單號", "")).strip(): str(records[r].get("客戶名稱", "")).strip()
                    for r in record_ids}
@@ -162,4 +169,6 @@ def create_outbound(records: dict, record_ids: list, warehouse_code: str,
             msgs.append(f"出庫單 {oid} 補填失敗：{e}")
         if progress:
             progress("patch", patched, len(new_ids))
+    if trigger_errs:
+        msgs = [f"部分拋轉失敗（已建好的仍補欄位）：{'; '.join(trigger_errs[:5])}"] + msgs
     return {"triggered": triggered, "new": len(new_ids), "patched": patched, "msgs": msgs}

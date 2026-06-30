@@ -89,7 +89,7 @@ def create_sample_orders(order_type: str, combo_items: list, customers: list,
         else:
             try:
                 res = R.ragic_post(R.SALES_ORDER_SHEET, payload)
-                ok = res.get("status") == "SUCCESS"
+                ok = res.get("status") == "SUCCESS" or bool(res.get("ragicId"))
                 results.append({"customer": c, "ok": ok,
                                 "msg": "" if ok else str(res.get("msg", res)), "payload": payload})
             except Exception as e:
