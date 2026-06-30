@@ -19,6 +19,8 @@ import customtkinter as ctk   # noqa: E402
 import sample_core as SC      # noqa: E402
 import ragic_upload as R      # noqa: E402
 
+R.NONINTERACTIVE = True   # GUI：金鑰缺失/失效時 raise（不跳 CLI 問答卡死背景緒）
+
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
@@ -56,8 +58,9 @@ class Screen(ctk.CTkFrame):
             right(bar)
         return bar
 
-    def run_async(self, work, done, status_label=None):
-        """背景執行 work()（回傳值傳給 done()）；Tk 不可跨執行緒，故走 queue 輪詢。"""
+    def run_async(self, work, done, status_label=None, on_error=None):
+        """背景執行 work()（回傳值傳給 done()）；Tk 不可跨執行緒，故走 queue 輪詢。
+        出錯：呼叫 on_error(e)（若有），否則顯示錯誤；金鑰失效等會走這條。"""
         q = queue.Queue()
 
         def w():
@@ -76,10 +79,12 @@ class Screen(ctk.CTkFrame):
             if kind == "ok":
                 done(val)
             else:
-                if status_label is not None:
+                if on_error is not None:
+                    on_error(val)
+                elif status_label is not None:
                     status_label.configure(text=f"載入失敗：{val}")
                 else:
-                    mbox.showerror("載入失敗", str(val))
+                    mbox.showerror("操作失敗", str(val))
         poll()
 
 
@@ -417,8 +422,10 @@ class OutboundScreen(Screen):
         bar.pack(fill="x", side="bottom")
         ctk.CTkButton(bar, text="預覽拆盒", fg_color="#8E8E93", height=36, width=120,
                       command=self._preview).pack(side="right", padx=(8, 24), pady=12)
-        ctk.CTkButton(bar, text="拋轉並補資料", fg_color=BLUE, height=36, width=150,
-                      font=ctk.CTkFont(size=14, weight="bold"), command=self._execute).pack(side="right", pady=12)
+        self.exec_btn = ctk.CTkButton(bar, text="拋轉並補資料", fg_color=BLUE, height=36, width=150,
+                                      font=ctk.CTkFont(size=14, weight="bold"), command=self._execute)
+        self.exec_btn.pack(side="right", pady=12)
+        self._busy = False
 
         self.run_async(OC.load_context, self._loaded, self.status)
 
@@ -502,23 +509,39 @@ class OutboundScreen(Screen):
             msg += ("\n\n⚠ 下列商品在此倉有多個庫存編號，GUI 會取第一筆（影響扣哪批）。\n"
                     "  若需指定批號請改用 CLI：\n"
                     + "\n".join(f"  {prod}：{opts}" for prod, opts in multi[:5]))
+        if self._busy:
+            return
         if not mbox.askyesno("確認執行（會寫入 ERP）", msg):
             return
-        # 庫存編號：每商品在該倉若唯一自動帶，多筆取第一筆（上方已警示）
-        prod_inv = {}
-        for p in self.OC.products_of(self.ctx["records"], ids):
-            opts = self.ctx["inv_by_wh_prod"].get((wh, p["prod"]), [])
-            if opts:
-                prod_inv[p["prod"]] = opts[0]
+        # 防連點 + 避免用過期庫存快照覆蓋：執行時禁用按鈕、寫入前重載庫存重算拆盒。
+        self._busy = True
+        self.exec_btn.configure(state="disabled", text="執行中…")
+        self.status.configure(text="執行中（重載庫存→拆盒→拋轉→補欄位）…")
 
         def work():
-            br = self.OC.apply_breakbox(merged) if merged else []
-            out = self.OC.create_outbound(self.ctx["records"], ids, wh, prod_inv)
+            ctx = self.OC.load_context()          # 重載，拿到最新絕對庫存值
+            fresh_plan = self.OC.break_plan(ctx["records"], ids, ctx["inventory"], wh)
+            fresh_merged = self.OC.merge_breakbox(fresh_plan)
+            prod_inv = {}
+            for p in self.OC.products_of(ctx["records"], ids):
+                opts = ctx["inv_by_wh_prod"].get((wh, p["prod"]), [])
+                if opts:
+                    prod_inv[p["prod"]] = opts[0]
+            br = self.OC.apply_breakbox(fresh_merged) if fresh_merged else []
+            out = self.OC.create_outbound(ctx["records"], ids, wh, prod_inv)
+            self.ctx = ctx                          # 更新快照供後續操作
             return br, out
-        self.status.configure(text="執行中（拆盒→拋轉→補欄位）…")
-        self.run_async(work, self._executed)
+        self.run_async(work, self._executed, on_error=self._exec_error)
+
+    def _exec_error(self, e):
+        self._busy = False
+        self.exec_btn.configure(state="normal", text="拋轉並補資料")
+        self.status.configure(text="執行失敗")
+        mbox.showerror("執行失敗", str(e))
 
     def _executed(self, data):
+        self._busy = False
+        self.exec_btn.configure(state="normal", text="拋轉並補資料")
         br, out = data
         bk_ok = sum(1 for _, ok, _ in br if ok)
         lines = [f"拆盒：{bk_ok}/{len(br)} 種中盒已改",
@@ -735,10 +758,12 @@ class NewSalesScreen(Screen):
             msg += f"\n防重複跳過 {dup} 張（之前已開過）。"
         if fail:
             msg += "\n\n失敗：\n" + "\n".join(fail[:8])
-        # 無失敗才把檔案移到 done/（與 CLI 一致，避免 list_pending 一直提供已開過的檔）
+        # 移檔到 done/ 的條件：無失敗，且整檔每張單都已處理（沒有被擋的列）。
+        # 若還有對不到客戶/規格歧義/商品缺漏的單，留著檔案讓人用 CLI 處理，不可移走。
+        all_done = all(self._creatable(p) for p in self.preview)
         moved = False
         f = getattr(self, "_active_file", None)
-        if f and not fail and (ok or dup):
+        if f and not fail and (ok or dup) and all_done:
             try:
                 import shutil
                 done_dir = f.parent / "done"
@@ -753,6 +778,8 @@ class NewSalesScreen(Screen):
             for w in self.scroll.winfo_children():
                 w.destroy()
             self.run_async(self.SLC.list_pending, self._refresh_files)
+        elif f and not all_done:
+            msg += "\n\n此檔仍有未處理的單（對不到客戶/規格需人工/商品缺漏），檔案保留，請用 CLI 補完。"
         mbox.showinfo("結果", msg)
 
     def _refresh_files(self, files):

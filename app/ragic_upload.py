@@ -188,6 +188,11 @@ _KEY_FILE = Path.home() / ".boptoys-ai_key"
 
 # ── Ragic API ────────────────────────────────────────────────
 
+# GUI 模式：設 True 時，金鑰缺失/失效不跳 questionary 問答（背景緒會卡死），改 raise
+# 讓上層（GUI run_async）接住、導回設定畫面。
+NONINTERACTIVE = False
+
+
 def _get_api_key(force_prompt: bool = False) -> str:
     """取得 Ragic API Key；force_prompt=True 時忽略既有金鑰，直接要求重新輸入。"""
     api_key = "" if force_prompt else os.environ.get("RAGIC_API_KEY", "")
@@ -195,6 +200,8 @@ def _get_api_key(force_prompt: bool = False) -> str:
         api_key = _KEY_FILE.read_text().strip()
         os.environ["RAGIC_API_KEY"] = api_key
     if not api_key:
+        if NONINTERACTIVE:
+            raise RuntimeError("Ragic API Key 尚未設定或已失效，請到「設定」重新填入。")
         if not force_prompt:
             console.print("[#FF7700]尚未設定 RAGIC_API_KEY[/#FF7700]")
         api_key = questionary.password("請輸入 Ragic API Key：").ask() or ""
