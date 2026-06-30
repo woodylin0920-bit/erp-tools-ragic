@@ -5,3 +5,4 @@ questionary>=2.0
 rich>=13.0
 requests>=2.31
 python-dotenv>=1.0
+customtkinter>=5.2   # 桌面 GUI（需 Python 含 tkinter；macOS: brew install python-tk）

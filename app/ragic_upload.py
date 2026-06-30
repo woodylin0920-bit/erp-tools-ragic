@@ -2041,10 +2041,6 @@ def run_sample_orders(args):
         console.print(f"    {c['name']}（{c['code']}）")
     console.print(f"  單別：{order_type}　狀態：未出貨　金額：全 0")
 
-    resolved = []
-    for it in combo:
-        resolved.append({"product_code": it["code"], "unit_price": 0, "quantity": it["qty"]})
-
     if args.dry_run:
         console.print(f"[#FF7700]★ DRY-RUN：預覽 {len(chosen)} 張單，未寫入 Ragic[/#FF7700]")
         return
@@ -2053,23 +2049,19 @@ def run_sample_orders(args):
         console.print("[#FF7700]已取消[/#FF7700]")
         return
 
+    # 實際開單走共用核心（CLI/GUI 同一份邏輯）
+    import sample_core
+    results = sample_core.create_sample_orders(order_type, combo, chosen, commit=True)
     success = 0
-    for c in chosen:
-        try:
-            payload = build_payload(c, resolved, order_type, "未出貨",
-                                    tax_rate="", shipping_fee=0,
-                                    notes="", internal_notes="批次發樣")
-            result = ragic_post(SALES_ORDER_SHEET, payload)
-            if result.get("status") == "SUCCESS":
-                success += 1
-                console.print(f"[#5A9A4A]✓ {c['name']} 開單成功[/#5A9A4A]")
-                logging.info("批次發樣成功 客戶=%s 單別=%s", c["name"], order_type)
-            else:
-                console.print(f"[red]✗ {c['name']} 失敗：{_friendly_error(result.get('msg', str(result)))}[/red]")
-                logging.warning("批次發樣失敗 客戶=%s msg=%s", c["name"], result.get("msg", result))
-        except Exception as e:
-            console.print(f"[red]✗ {c['name']} 發生錯誤：{_friendly_error(str(e))}[/red]")
-            logging.error("批次發樣錯誤 客戶=%s error=%s", c["name"], e)
+    for r in results:
+        name = r["customer"]["name"]
+        if r["ok"]:
+            success += 1
+            console.print(f"[#5A9A4A]✓ {name} 開單成功[/#5A9A4A]")
+            logging.info("批次發樣成功 客戶=%s 單別=%s", name, order_type)
+        else:
+            console.print(f"[red]✗ {name} 失敗：{_friendly_error(r['msg'])}[/red]")
+            logging.warning("批次發樣失敗 客戶=%s msg=%s", name, r["msg"])
     console.print(f"[bold #5A9A4A]完成！{success}/{len(chosen)} 張「{order_type}」單已建立[/bold #5A9A4A]")
     console.print("[dim]請至 Ragic 銷貨單頁面確認[/dim]")
     _pause()
