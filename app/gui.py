@@ -26,9 +26,9 @@ GREEN = "#34C759"
 GRAY = "#6C6C70"
 
 NAV = [
-    ("開單", [("📄 新建銷售單", False), ("🎁 批次發樣", True)]),
-    ("拋轉", [("🚚 建立出貨單", False), ("📦 建立出庫單", False)]),
-    ("查詢與對帳", [("📊 匯出庫存報表", False), ("🚢 在途查詢", False), ("🛒 電商對帳", False)]),
+    ("開單", [("新建銷售單", False), ("批次發樣", True)]),
+    ("拋轉", [("建立出貨單", False), ("建立出庫單", False)]),
+    ("查詢與對帳", [("匯出庫存報表", False), ("在途查詢", False), ("電商對帳", False)]),
 ]
 
 
@@ -67,7 +67,7 @@ class App(ctk.CTk):
         # 底部：預覽模式總開關（與內容區同步）
         foot = ctk.CTkFrame(bar, fg_color="transparent")
         foot.pack(side="bottom", fill="x", padx=16, pady=16)
-        ctk.CTkLabel(foot, text="預覽模式（不寫入）", text_color=GRAY,
+        ctk.CTkLabel(foot, text="設定", text_color=GRAY,
                      font=ctk.CTkFont(size=12)).pack(side="left")
 
     def _nav(self, label):
@@ -140,7 +140,7 @@ class SampleOrderFrame(ctk.CTkFrame):
         self.cust_hd = ctk.CTkLabel(right, text="發給客戶 · 已選 0",
                                     font=ctk.CTkFont(size=13, weight="bold"), text_color=GRAY)
         self.cust_hd.grid(row=0, column=0, sticky="w", padx=16, pady=(12, 4))
-        self.search = ctk.CTkEntry(right, placeholder_text="🔍 搜尋客戶（中文 / 代號）")
+        self.search = ctk.CTkEntry(right, placeholder_text="搜尋客戶（中文 / 代號）")
         self.search.grid(row=1, column=0, sticky="ew", padx=16, pady=4)
         self.search.bind("<KeyRelease>", lambda e: self._refresh_cust_list())
         self.cust_scroll = ctk.CTkScrollableFrame(right, fg_color="transparent")
