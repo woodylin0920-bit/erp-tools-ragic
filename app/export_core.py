@@ -90,9 +90,8 @@ def export_to_template(warehouse_code: str, template_path, price_index: dict):
     wb.calculation = CalcProperties(fullCalcOnLoad=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     prefix = template_path.stem.replace("-template", "")
-    # 歸檔：報價模板→報價/、其餘(庫存總覽)→庫存/
-    sub = "報價" if prefix == "quote" else "庫存"
-    out_dir = R.BASE_OUTPUT / sub
+    # 歸檔：客戶現貨報表都是「給客戶看的」→ 給客戶/（檔名 quote_/inventory_ 仍可分辨報價或庫存表）
+    out_dir = R.BASE_OUTPUT / "給客戶"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{prefix}_{warehouse_code}_{ts}.xlsx"
     wb.save(out_path)

@@ -231,7 +231,7 @@ def export(month_label: str | None = None) -> Path:
     for c, w in enumerate([10, 16, 12, 16], 1):
         summary.column_dimensions[get_column_letter(c)].width = w
 
-    out_dir = BASE_OUTPUT / "月度庫存金額"   # 歸檔：月度金額報表分開放
+    out_dir = BASE_OUTPUT / "內部-庫存金額"   # 歸檔：內部/會計用的月度庫存金額
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     out_path = out_dir / f"inventory_value_{title_month.replace('-', '')}_{stamp}.xlsx"
