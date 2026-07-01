@@ -16,4 +16,6 @@ python3 -c "import tkinter" 2>/dev/null || {
     echo "  Mac 修法： brew install python-tk"
     read -p "按任意鍵關閉..." -n1; exit 1
 }
+# GUI 模式：輸出放桌面 ~/Desktop/潮玩波普ERP/（與打包 exe 一致，行政好找）
+export BOPTOYS_GUI=1
 python3 app/gui.py

@@ -894,17 +894,22 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
     }
 
 
-# 路徑：開發時用 repo 根目錄；打包(PyInstaller)後 __file__ 在暫存解壓目錄，
-# 故資料夾改放使用者家目錄 ~/潮玩波普ERP/，模板從 bundle(_MEIPASS) 帶。
+# 路徑規則：
+# - CLI（start.command / 直接跑 python）→ repo 根目錄的 templates/client_order/exports（不變）。
+# - GUI（打包 exe，或 start-gui.command 設 BOPTOYS_GUI=1）→ 資料夾放桌面 ~/Desktop/潮玩波普ERP/，
+#   讓行政好找、且 start-gui 與 exe 行為一致。模板：打包從 bundle(_MEIPASS) 帶，開發用 repo。
 _FROZEN = getattr(sys, "frozen", False)
+_GUI = _FROZEN or os.environ.get("BOPTOYS_GUI") == "1"
 if _FROZEN:
+    BASE_TEMPLATES = Path(getattr(sys, "_MEIPASS", ".")) / "templates"
+else:
+    BASE_TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
+if _GUI:
     _desktop = Path.home() / "Desktop"
     _DATA_ROOT = (_desktop if _desktop.is_dir() else Path.home()) / "潮玩波普ERP"
     _DATA_ROOT.mkdir(parents=True, exist_ok=True)
-    BASE_TEMPLATES = Path(getattr(sys, "_MEIPASS", str(_DATA_ROOT))) / "templates"
 else:
     _DATA_ROOT = Path(__file__).resolve().parent.parent
-    BASE_TEMPLATES = _DATA_ROOT / "templates"
 BASE_CLIENT_ORDER = _DATA_ROOT / "client_order"
 BASE_OUTPUT       = _DATA_ROOT / "exports"
 
