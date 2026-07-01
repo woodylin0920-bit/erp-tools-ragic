@@ -231,9 +231,10 @@ def export(month_label: str | None = None) -> Path:
     for c, w in enumerate([10, 16, 12, 16], 1):
         summary.column_dimensions[get_column_letter(c)].width = w
 
-    BASE_OUTPUT.mkdir(exist_ok=True)
+    out_dir = BASE_OUTPUT / "月度庫存金額"   # 歸檔：月度金額報表分開放
+    out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    out_path = BASE_OUTPUT / f"inventory_value_{title_month.replace('-', '')}_{stamp}.xlsx"
+    out_path = out_dir / f"inventory_value_{title_month.replace('-', '')}_{stamp}.xlsx"
     wb.save(out_path)
     console.print(f"[#5A9A4A]✓ 已輸出：{out_path}[/#5A9A4A]")
     grand_total = sum(s[3] for s in summary_rows)

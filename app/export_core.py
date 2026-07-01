@@ -90,7 +90,11 @@ def export_to_template(warehouse_code: str, template_path, price_index: dict):
     wb.calculation = CalcProperties(fullCalcOnLoad=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     prefix = template_path.stem.replace("-template", "")
-    out_path = R.BASE_OUTPUT / f"{prefix}_{warehouse_code}_{ts}.xlsx"
+    # 歸檔：報價模板→報價/、其餘(庫存總覽)→庫存/
+    sub = "報價" if prefix == "quote" else "庫存"
+    out_dir = R.BASE_OUTPUT / sub
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{prefix}_{warehouse_code}_{ts}.xlsx"
     wb.save(out_path)
 
     # 保留模板嵌入圖片（openpyxl 3.x 存檔會掉圖）：注入模板的 media 等，只換邏輯內容

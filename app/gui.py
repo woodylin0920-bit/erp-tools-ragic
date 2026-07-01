@@ -57,6 +57,32 @@ class Screen(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master, fg_color="#FFFFFF", corner_radius=0)
 
+    def enable_scroll(self, scrollframe):
+        """修 CTkScrollableFrame 子元件吃掉滾輪→卡住。做法：滑鼠進入捲動區時用 bind_all
+        全域接管滾輪（不管游標在哪個子元件上都能捲），離開時解除。冪等，可重複呼叫。"""
+        if getattr(scrollframe, "_scroll_hooked", False):
+            return
+        canvas = getattr(scrollframe, "_parent_canvas", None)
+        if canvas is None:
+            return
+        scrollframe._scroll_hooked = True
+
+        def _wheel(e):
+            num = getattr(e, "num", None)
+            delta = getattr(e, "delta", 0)
+            canvas.yview_scroll(1 if (num == 5 or delta < 0) else -1, "units")
+            return "break"
+
+        def _enter(_e):
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                canvas.bind_all(seq, _wheel)
+
+        def _leave(_e):
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                canvas.unbind_all(seq)
+        scrollframe.bind("<Enter>", _enter, add="+")
+        scrollframe.bind("<Leave>", _leave, add="+")
+
     def toolbar(self, title, right=None):
         bar = ctk.CTkFrame(self, height=52, fg_color="transparent")
         bar.pack(fill="x", padx=22, pady=(14, 0))
@@ -195,6 +221,7 @@ class SampleOrderScreen(Screen):
                             font=ctk.CTkFont(size=13),
                             command=lambda code=c["code"]: self._toggle(code)).pack(anchor="w", padx=6, pady=2)
         self.cust_hd.configure(text=f"發給客戶 · 已選 {len(self.chosen)}")
+        self.enable_scroll(self.cust_scroll)
 
     def _toggle(self, code):
         (self.chosen.add if self.cust_vars[code].get() else self.chosen.discard)(code)
@@ -278,6 +305,7 @@ class InTransitScreen(Screen):
                              font=ctk.CTkFont(size=12), text_color="#1C1C1E").pack(anchor="w", padx=14)
             ctk.CTkLabel(card, text="", height=4).pack()
         self.status.configure(text=f"共 {shown} 張採購單有未到貨商品" if self.pos else "目前無在途採購單")
+        self.enable_scroll(self.scroll)
 
 
 # ════════════════════════════════════════════════════════════
@@ -335,6 +363,7 @@ class EcomScreen(Screen):
         if not missing:
             ctk.CTkLabel(self.scroll, text="沒有漏開的訂單 ✓", text_color=GREEN,
                          font=ctk.CTkFont(size=14)).pack(pady=20)
+        self.enable_scroll(self.scroll)
 
 
 # ════════════════════════════════════════════════════════════
@@ -374,6 +403,7 @@ class DeliveryScreen(Screen):
                             font=ctk.CTkFont(size=13)).pack(anchor="w", padx=8, pady=2)
             self.rows.append((rid, label, var))
         self.status.configure(text=f"共 {len(items)} 張待拋轉（未出貨/預接單/已收款未出貨），勾選後按建立")
+        self.enable_scroll(self.scroll)
 
     def _go(self):
         sel = [(rid, lbl) for rid, lbl, v in self.rows if v.get()]
@@ -460,6 +490,7 @@ class OutboundScreen(Screen):
             if shown >= 200:
                 break
         self.status.configure(text=f"共 {len(self.ctx['candidates'])} 張出貨單，勾選後可預覽拆盒或拋轉")
+        self.enable_scroll(self.scroll)
 
     def _selected_ids(self):
         return [rid for rid, _, v in self.rows if v.get()]
@@ -834,6 +865,7 @@ class NewSalesScreen(Screen):
         ok = sum(1 for p in preview if self._creatable(p))
         blocked = len(preview) - ok
         self.status.configure(text=f"解析 {len(preview)} 張，可開立 {ok}（{blocked} 張對不到客戶/規格需人工/商品缺漏，跳過）")
+        self.enable_scroll(self.scroll)
 
     @staticmethod
     def _creatable(p):
