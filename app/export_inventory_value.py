@@ -17,6 +17,7 @@ from openpyxl.utils import get_column_letter
 
 try:
     from app.ragic_upload import (
+        BASE_OUTPUT,
         INVENTORY_SHEET,
         PRODUCT_PRICE_SHEET,
         console,
@@ -25,13 +26,14 @@ try:
 except ImportError:
     # 從 start.bat / start.command 啟動時 sys.path 已含 app/，直接相對 import
     from ragic_upload import (
+        BASE_OUTPUT,
         INVENTORY_SHEET,
         PRODUCT_PRICE_SHEET,
         console,
         ragic_get,
     )
 
-BASE_OUTPUT = Path(__file__).resolve().parent.parent / "exports"
+# BASE_OUTPUT 從 ragic_upload 帶（打包感知：桌面/潮玩波普ERP），不再自行寫死 repo 路徑
 HEADERS = ["倉庫代碼", "倉庫名稱", "種類", "商品名稱", "規格", "單位", "數量", "單位成本", "庫存現金"]
 EXCLUDE_WAREHOUSES = {"CH000"}  # 中國倉儲不計入庫存金額統計
 

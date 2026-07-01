@@ -572,23 +572,44 @@ class ExportScreen(Screen):
         import export_core as EC
         self.EC = EC
         self.toolbar("匯出庫存報表（Excel）")
-        form = ctk.CTkFrame(self, fg_color="transparent")
-        form.pack(fill="x", padx=26, pady=18)
 
-        ctk.CTkLabel(form, text="倉庫", text_color=GRAY, font=ctk.CTkFont(size=13)).grid(row=0, column=0, sticky="w", pady=6)
-        self.wh = ctk.CTkOptionMenu(form, values=["（讀取中…）"], width=240, fg_color=BLUE)
+        self.rtype = ctk.CTkSegmentedButton(
+            self, values=["客戶現貨報表", "月度庫存金額統計"],
+            command=lambda v: self._switch_type(), font=ctk.CTkFont(size=13))
+        self.rtype.set("客戶現貨報表")
+        self.rtype.pack(anchor="w", padx=26, pady=(16, 6))
+
+        # 現貨報表：倉庫 + 模板
+        self.form = ctk.CTkFrame(self, fg_color="transparent")
+        self.form.pack(fill="x", padx=26, pady=6)
+        ctk.CTkLabel(self.form, text="倉庫", text_color=GRAY, font=ctk.CTkFont(size=13)).grid(row=0, column=0, sticky="w", pady=6)
+        self.wh = ctk.CTkOptionMenu(self.form, values=["（讀取中…）"], width=240, fg_color=BLUE)
         self.wh.grid(row=0, column=1, sticky="w", padx=12, pady=6)
-        ctk.CTkLabel(form, text="模板", text_color=GRAY, font=ctk.CTkFont(size=13)).grid(row=1, column=0, sticky="w", pady=6)
+        ctk.CTkLabel(self.form, text="模板", text_color=GRAY, font=ctk.CTkFont(size=13)).grid(row=1, column=0, sticky="w", pady=6)
         self.tpls = {t.name: t for t in EC.list_templates()}
-        self.tpl = ctk.CTkOptionMenu(form, values=list(self.tpls) or ["（無模板，請放入 templates/）"], width=360)
+        self.tpl = ctk.CTkOptionMenu(self.form, values=list(self.tpls) or ["（無模板，請放入 templates/）"], width=360)
         self.tpl.grid(row=1, column=1, sticky="w", padx=12, pady=6)
+
+        # 月度金額：月份輸入
+        self.mform = ctk.CTkFrame(self, fg_color="transparent")
+        ctk.CTkLabel(self.mform, text="月份", text_color=GRAY, font=ctk.CTkFont(size=13)).grid(row=0, column=0, sticky="w", pady=6)
+        self.month = ctk.CTkEntry(self.mform, width=160, placeholder_text="YYYY-MM（留空＝上個月）")
+        self.month.grid(row=0, column=1, sticky="w", padx=12, pady=6)
+        ctk.CTkLabel(self.mform, text="全倉分頁、含成本與庫存現金，給會計月結用",
+                     text_color=GRAY, font=ctk.CTkFont(size=12)).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 4))
 
         ctk.CTkButton(self, text="匯出", fg_color=BLUE, width=120, height=38,
                       font=ctk.CTkFont(size=14, weight="bold"), command=self._export).pack(anchor="w", padx=26, pady=(6, 4))
-        self.status = ctk.CTkLabel(self, text="選倉庫與模板後按匯出（讀庫存填模板，輸出到 exports/）",
+        self.status = ctk.CTkLabel(self, text="選報表類型與參數後按匯出（輸出到 exports/）",
                                    text_color=GRAY, font=ctk.CTkFont(size=13))
         self.status.pack(anchor="w", padx=26, pady=8)
         self.run_async(EC.load_warehouses, self._loaded, self.status)
+
+    def _switch_type(self):
+        self.form.pack_forget()
+        self.mform.pack_forget()
+        target = self.form if self.rtype.get() == "客戶現貨報表" else self.mform
+        target.pack(fill="x", padx=26, pady=6, after=self.rtype)
 
     def _loaded(self, whs):
         order = sorted(whs.keys(), key=lambda w: (0 if w == "TW01" else 1, w))
@@ -597,6 +618,19 @@ class ExportScreen(Screen):
             self.wh.set(f"{order[0]}  {whs[order[0]]}")
 
     def _export(self):
+        if self.rtype.get() == "月度庫存金額統計":
+            month = self.month.get().strip()
+            self.status.configure(text="產生月度庫存金額統計中（全倉、含成本）…")
+
+            def work():
+                try:
+                    from export_inventory_value import export as ev
+                except ImportError:
+                    from app.export_inventory_value import export as ev
+                return ev(month or None)
+            self.run_async(work, lambda p: self._done((p, None, None)), self.status,
+                           on_error=lambda e: (self.status.configure(text="匯出失敗"), mbox.showerror("匯出失敗", str(e))))
+            return
         if not self.tpls:
             mbox.showwarning("提醒", "templates/ 內沒有模板"); return
         wh = self.wh.get().split("  ")[0].strip()
@@ -611,8 +645,9 @@ class ExportScreen(Screen):
 
     def _done(self, result):
         out_path, filled, skipped = result
-        self.status.configure(text=f"✓ 完成！填入 {filled} 筆（略過 {skipped} 單盒項目）")
-        if mbox.askyesno("完成", f"已輸出：\n{out_path}\n\n填入 {filled} 筆。要打開資料夾嗎？"):
+        detail = f"填入 {filled} 筆（略過 {skipped} 單盒項目）" if filled is not None else "月度庫存金額統計"
+        self.status.configure(text=f"✓ 完成！{detail}")
+        if mbox.askyesno("完成", f"已輸出：\n{out_path}\n\n{detail}。要打開資料夾嗎？"):
             import subprocess
             import platform
             folder = str(out_path.parent)
