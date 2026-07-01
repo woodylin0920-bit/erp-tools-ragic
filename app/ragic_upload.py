@@ -898,7 +898,8 @@ def build_payload(customer: dict, resolved: list, order_type: str, order_status:
 # 故資料夾改放使用者家目錄 ~/潮玩波普ERP/，模板從 bundle(_MEIPASS) 帶。
 _FROZEN = getattr(sys, "frozen", False)
 if _FROZEN:
-    _DATA_ROOT = Path.home() / "潮玩波普ERP"
+    _desktop = Path.home() / "Desktop"
+    _DATA_ROOT = (_desktop if _desktop.is_dir() else Path.home()) / "潮玩波普ERP"
     _DATA_ROOT.mkdir(parents=True, exist_ok=True)
     BASE_TEMPLATES = Path(getattr(sys, "_MEIPASS", str(_DATA_ROOT))) / "templates"
 else:
